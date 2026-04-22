@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(taskkill //F //PID 29416)",
+      "Bash(taskkill //F //PID 41284)",
+      "Bash(node \"F:/代码/EER - 副本/generate_shipping_station.js\")",
+      "Bash(node -e ':*)",
+      "Bash(npx eslint:*)",
+      "Bash(node -c \"F:/代码/EER - 副本/frontend/src/pages/ShippingStation.js\")"
+    ]
+  }
+}

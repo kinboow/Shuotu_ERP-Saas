@@ -1,0 +1,45 @@
+推送缺货需求库存数（新）
+/out_of_stock_notice
+全托管
+SHEIN自营
+POP
+该消息用于通知全托管（代运营）ERP 平台关于店铺商品的缺货情况，以便ERP在生成采购单前提前锁定库存。消息接入方式可查看文档：webhook说明文档
+
+消息属性
+收起
+参数名称	数据类型	是否必须	描述
+sendTimestamp
+long	是	
+事件发送时间
+
+tempLockExceptionQty
+int64	是	
+未付款缺货需求数
+outOfStockQty
+int64	是	
+已付款缺货需求数
+skcName
+string	是	
+平台生成的SKC；对应发布接口的skc_name
+
+skuCode
+string	是	
+平台生成的SKU；对应发布接口的sku_code
+
+消息示例
+收起
+{
+    "outOfStockQty": 0,
+    "sendTimestamp": 1725357735472,
+    "skcName": "sw2212205439442765",
+    "skuCode": "I13ikm28pyqg",
+    "tempLockExceptionQty": 11
+}
+
+
+复制
+FAQ
+Q：Webhook消息发送失败了，平台会有重试机制吗？
+2025-10-30
+A：
+如果平台将 Webhook 消息推送到开发者的回调地址后，开发者没有及时响应，会触发失败重推机制：非订单消息： 平台只会重试 1次。订单事件： 平台会重试 2次。重试时间： 第一次重试的时间大约为30分钟至1小时之间。如有进一步问题，请联系开放平台的工单支持进行咨询

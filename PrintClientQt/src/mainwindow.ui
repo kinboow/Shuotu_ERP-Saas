@@ -1,0 +1,279 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>800</width>
+    <height>600</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>标签打印客户端 (Qt)</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <layout class="QVBoxLayout" name="verticalLayout">
+    <!-- 本地服务设置 -->
+    <item>
+     <widget class="QGroupBox" name="groupLocalService">
+      <property name="title">
+       <string>本地 HTTP 服务</string>
+      </property>
+      <layout class="QHBoxLayout">
+       <item>
+        <widget class="QLabel" name="labelPort">
+         <property name="text">
+          <string>监听端口:</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QSpinBox" name="spinPort">
+         <property name="minimum">
+          <number>1</number>
+         </property>
+         <property name="maximum">
+          <number>65535</number>
+         </property>
+         <property name="value">
+          <number>9100</number>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="btnStart">
+         <property name="text">
+          <string>启动服务</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="btnStop">
+         <property name="text">
+          <string>停止服务</string>
+         </property>
+         <property name="enabled">
+          <bool>false</bool>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <spacer>
+         <property name="orientation">
+          <enum>Qt::Horizontal</enum>
+         </property>
+        </spacer>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <!-- 后端服务器连接 -->
+    <item>
+     <widget class="QGroupBox" name="groupServer">
+      <property name="title">
+       <string>后端服务器连接</string>
+      </property>
+      <layout class="QGridLayout">
+       <item row="0" column="0">
+        <widget class="QLabel">
+         <property name="text">
+          <string>服务器地址:</string>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="1">
+        <widget class="QLineEdit" name="editServerUrl">
+         <property name="text">
+          <string>http://localhost:5000</string>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="2">
+        <widget class="QLabel">
+         <property name="text">
+          <string>客户端名称:</string>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="3">
+        <widget class="QLineEdit" name="editClientName">
+         <property name="text">
+          <string>打印客户端</string>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="4">
+        <widget class="QPushButton" name="btnRegister">
+         <property name="text">
+          <string>注册到服务器</string>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="0" colspan="5">
+        <layout class="QHBoxLayout">
+         <item>
+          <widget class="QLabel" name="labelServerStatus">
+           <property name="text">
+            <string>● 未连接到后端服务器</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btnDisconnect">
+           <property name="text">
+            <string>断开连接</string>
+           </property>
+           <property name="visible">
+            <bool>false</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <spacer>
+           <property name="orientation">
+            <enum>Qt::Horizontal</enum>
+           </property>
+          </spacer>
+         </item>
+        </layout>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <!-- 打印机设置 -->
+    <item>
+     <widget class="QGroupBox" name="groupPrinter">
+      <property name="title">
+       <string>打印机设置</string>
+      </property>
+      <layout class="QHBoxLayout">
+       <item>
+        <widget class="QLabel">
+         <property name="text">
+          <string>选择打印机:</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QComboBox" name="comboPrinters">
+         <property name="minimumWidth">
+          <number>200</number>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="btnRefresh">
+         <property name="text">
+          <string>刷新</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <spacer>
+         <property name="orientation">
+          <enum>Qt::Horizontal</enum>
+         </property>
+        </spacer>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <!-- 状态信息 -->
+    <item>
+     <widget class="QGroupBox" name="groupStatus">
+      <property name="title">
+       <string>服务状态</string>
+      </property>
+      <layout class="QHBoxLayout">
+       <item>
+        <widget class="QLabel" name="labelStatus">
+         <property name="text">
+          <string>● 服务未启动</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="labelPrintCount">
+         <property name="text">
+          <string>已打印: 0</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <spacer>
+         <property name="orientation">
+          <enum>Qt::Horizontal</enum>
+         </property>
+        </spacer>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <!-- 日志区域 -->
+    <item>
+     <widget class="QGroupBox" name="groupLog">
+      <property name="title">
+       <string>打印日志</string>
+      </property>
+      <layout class="QVBoxLayout">
+       <item>
+        <widget class="QListWidget" name="listLog">
+         <property name="font">
+          <font>
+           <family>Consolas</family>
+           <pointsize>9</pointsize>
+          </font>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <!-- 底部按钮 -->
+    <item>
+     <layout class="QHBoxLayout">
+      <item>
+       <spacer>
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+       </spacer>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btnAddPaperSizes">
+        <property name="text">
+         <string>添加常用纸张</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btnDiagnostic">
+        <property name="text">
+         <string>诊断打印机</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btnTestPrint">
+        <property name="text">
+         <string>测试打印</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btnClearLog">
+        <property name="text">
+         <string>清空日志</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
+   </layout>
+  </widget>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

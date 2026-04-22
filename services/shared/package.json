@@ -1,0 +1,13 @@
+{
+  "name": "@erp/shared",
+  "version": "1.0.0",
+  "description": "ERP微服务共享库",
+  "main": "index.js",
+  "dependencies": {
+    "amqplib": "^0.10.9",
+    "axios": "^1.5.0",
+    "ioredis": "^5.3.2",
+    "uuid": "^9.0.0",
+    "winston": "^3.11.0"
+  }
+}

@@ -1,0 +1,520 @@
+ package cn.dotfashion.soa.openapiEvent.bussiness.event.demo;
+
+import cn.dotfashion.soa.openapiEvent.utils.JsonUtil;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.codec.binary.Base64;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import javax.crypto.Cipher;
+import javax.crypto.KeyGenerator;
+import javax.crypto.Mac;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
+import javax.servlet.http.HttpServletRequest;
+import java.nio.charset.StandardCharsets;
+import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Random;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * @author Jumping.Li
+ * @date 2019/6/20 10:55
+ */
+@Slf4j
+public class EventCallbackDemo {
+
+    /**
+     * 供应商openKey，用于识别erp用户
+     */
+    public static final String X_LT_OPENKEY_ID = "x-lt-openKeyId";
+    /**
+     * 时间戳请求头
+     */
+    public static final String X_LT_TIMESTAMP = "x-lt-timestamp";
+    /**
+     * 签名请求头
+     */
+    public static final String X_LT_SIGNATURE = "x-lt-signature";
+    /**
+     * 签名的appid请求头
+     */
+    public static final String X_LT_KEY_EVENT_APP_ID = "x-lt-appid";
+
+    /**
+     * 本地密钥（从数据库、配置中获取）
+     */
+    public static final String SECRET_KEY = "35BCFA6F4CD843B9B0083B18A38A7062";
+
+    private ThreadPoolExecutor executor = new ThreadPoolExecutor(10, 10, 0L, TimeUnit.SECONDS,
+            new LinkedBlockingQueue<>(1024),
+            new ThreadFactoryBuilder().setNameFormat("sync-common-pool-%d").build(),
+            new ThreadPoolExecutor.DiscardPolicy());
+
+    /**
+     * 接口示例
+     * @param request
+     * @param eventData 来自form-data的加密数据
+     * @return
+     */
+    @PostMapping("/testOpenapiCallback")
+    public boolean testOpenapiCallback(HttpServletRequest request, @RequestParam("eventData") String eventData) {
+        Iterator<String> stringIterator = request.getHeaderNames().asIterator();
+        HashMap<String, String> headerMap = new HashMap<>();
+        while (stringIterator.hasNext()) {
+            String next = stringIterator.next();
+            headerMap.put(next, request.getHeader(next));
+        }
+        log.info("收到openAPI-callback请求,header:{}", headerMap);
+
+        boolean verifySign = EventCallbackDemo.verifySignForHttp(request, SECRET_KEY);
+        log.info("收到openAPI-callback请求，密文message--{},签名结果-{}", eventData, verifySign);
+        String decryptData = AESTools.decrypt(eventData, SECRET_KEY);
+        executor.execute(() -> {
+            log.info("收到openAPI-callback请求，解密decrypt--{}，开始处理业务代码", decryptData);
+            //TODO 业务代码
+            handleRequest(decryptData);
+        });
+        return verifySign;
+    }
+
+    private void handleRequest(String decryptData) {
+        //TODO 业务代码
+    }
+
+
+    /**
+     * 有两种模式
+     * 普通接口用客户的openKey+secretKey签名
+     * 事件回调接口用erp的appid+secretKey签名
+     *
+     * @param request
+     * @param secretKey
+     * @return
+     */
+    public static boolean verifySignForHttp(HttpServletRequest request, String secretKey) {
+        // 获取请求头
+        String openKey = null;
+        if (request.getHeader(X_LT_KEY_EVENT_APP_ID) != null) {
+            openKey = request.getHeader(X_LT_KEY_EVENT_APP_ID);
+        } else {
+            openKey = request.getHeader(X_LT_OPENKEY_ID);
+        }
+        String timestamp = request.getHeader(X_LT_TIMESTAMP);
+        String signature = request.getHeader(X_LT_SIGNATURE);
+        String requestPath = request.getRequestURI();
+        return ApiSignUtil.verifySign(signature, openKey, secretKey, requestPath, timestamp);
+    }
+
+
+
+
+
+    public static class ApiSignUtil {
+        private static final String HMAC_SHA256 = "HmacSHA256";
+        private static final String AND = "&";
+        private static final int RANDOM_LENGTH = 5;
+
+
+
+        static String hmacSha256(String message, String secret) {
+            String hash = "";
+            try {
+                Mac mac = Mac.getInstance(HMAC_SHA256);
+                SecretKeySpec secretKey = new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), HMAC_SHA256);
+                mac.init(secretKey);
+                byte[] bytes = mac.doFinal(message.getBytes());
+                hash = byteArrayToHexString(bytes);
+            } catch (NoSuchAlgorithmException | InvalidKeyException e) {
+                log.error("HmacSHA256 error : {}", ExceptionUtils.getStackTrace(e));
+            }
+            return hash;
+        }
+
+        private static String byteArrayToHexString(byte[] b) {
+            StringBuilder hs = new StringBuilder();
+            String tmp;
+            for (int n = 0; b != null && n < b.length; n++) {
+                tmp = Integer.toHexString(b[n] & 0XFF);
+                if (tmp.length() == 1) {
+                    hs.append('0');
+                }
+                hs.append(tmp);
+            }
+            return hs.toString().toLowerCase();
+        }
+
+        static String base64Encode(String data) {
+            String result = "";
+            if (StringUtils.isNotBlank(data)) {
+                result = new String(Base64.encodeBase64(data.getBytes(StandardCharsets.UTF_8)), StandardCharsets.UTF_8);
+            }
+            return result;
+        }
+
+        private static String randomString(int length) {
+            String str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+            int range = str.length();
+            Random random = ThreadLocalRandom.current();
+            StringBuffer sb = new StringBuffer();
+
+            for (int i = 0; i < length; ++i) {
+                int number = random.nextInt(range);
+                sb.append(str.charAt(number));
+            }
+
+            return sb.toString();
+        }
+
+        public static String signature(String apiKey, String timestamp, String requestPath, String secret) {
+            return signature(apiKey, timestamp, requestPath, secret, randomString(RANDOM_LENGTH));
+        }
+
+        public static String signature(String apiKey, String timestamp, String requestPath, String secret, String randomKey) {
+            StringBuilder stringBuilder = new StringBuilder();
+            String signString = stringBuilder.append(apiKey).append(AND).append(timestamp).append(AND).append(requestPath).toString();
+            String secretKey = secret + randomKey;
+            String hashValue = hmacSha256(signString, secretKey);
+            return base64Encode(hashValue);
+        }
+
+        public static String createSignature(String loginName, String timestamp, String requestPath, String secret) {
+            String randomKey = randomString(RANDOM_LENGTH);
+            return randomKey + signature(loginName, timestamp, requestPath, secret, randomKey);
+        }
+
+        public static String createSignature(String loginName, String timestamp, String requestPath, String secret, String randomKey) {
+            return randomKey + signature(loginName, timestamp, requestPath, secret, randomKey);
+        }
+
+        public static int getRandomLength() {
+            return RANDOM_LENGTH;
+        }
+
+
+        public static boolean verifySign(String signature, String openKey, String secretKey, String requestPath, String timestamp) {
+            String randomKey = signature.substring(0, RANDOM_LENGTH);
+            String base64Value = createSignature(openKey, timestamp, requestPath, secretKey, randomKey);
+            log.info("验证签名字段打印：{},{},{}---sign：{}", openKey, timestamp, requestPath, base64Value);
+            if (signature.equals(base64Value)) {
+                return true;
+            }
+            return false;
+        }
+
+    }
+
+
+    /**
+     * AES加解密工具
+     */
+    public static class AESTools {
+        private static final Logger log = LoggerFactory.getLogger(AESTools.class);
+
+        private static final String UTF_8 = "utf-8";
+        private static final String KEY_ALGORITHM = "AES";
+        private static final Integer BLOCK_LENGTH = 128;
+        /**
+         * 默认的加密算法
+         */
+        private static final String DEFAULT_CIPHER_ALGORITHM = "AES/CBC/PKCS5Padding";
+        /**
+         * 默认密钥
+         */
+        private static final String DEFAULT_KEY = "space-station-default-key";
+        /**
+         * 默认的IV生成seed
+         */
+        private static final String DEFAULT_IV_SEED = "space-station-default-iv";
+
+        private static final Integer IV_LENGTH = 16;
+
+
+        /**
+         * 使用AES算法加密字符串
+         *
+         * @param content 待加密的字符串
+         * @return 加密后的字符串 BASE64格式
+         */
+        public static String encrypt(String content) {
+            return encrypt(content, DEFAULT_KEY);
+        }
+
+
+        /**
+         * AES 加密操作
+         *
+         * @param content 待加密内容
+         * @param key     加密密码
+         * @return 返回Base64转码后的加密数据 string
+         */
+        public static String encrypt(String content, String key) {
+            return encrypt(content, key, DEFAULT_IV_SEED);
+        }
+
+        /**
+         * Encrypt string.
+         *
+         * @param content the content
+         * @param key     the key
+         * @param ivSeed  the iv seed
+         * @return the string
+         */
+        public static String encrypt(String content, String key, String ivSeed) {
+            return encrypt(content, key, ivSeed, false);
+        }
+
+        /**
+         * AES 加密操作
+         *
+         * @param content         待加密内容
+         * @param key             加密密码
+         * @param ivSeed          the ivSeed
+         * @param useSecureRandom 是否对密钥使用随机算法
+         * @return 返回Base64转码后的加密数据 string
+         */
+        public static String encrypt(String content, String key, String ivSeed, boolean useSecureRandom) {
+            return encrypt(content, key, ivSeed, useSecureRandom, false);
+        }
+
+
+        /**
+         * AES 加密操作
+         *
+         * @param content          待加密内容
+         * @param key              加密密码
+         * @param ivSeed           the ivSeed
+         * @param useSecureRandom  是否对密钥使用随机算法
+         * @param fillIvIntoResult the fill iv into result
+         * @return 返回Base64转码后的加密数据 string
+         */
+        public static String encrypt(String content, String key, String ivSeed, boolean useSecureRandom, boolean fillIvIntoResult) {
+            if (content == null || content.length() == 0
+                    || key == null || key.length() == 0
+                    || ivSeed == null || ivSeed.length() == 0) {
+                throw new IllegalArgumentException("加密内容/密钥/iv不能为空");
+            }
+            if (ivSeed.getBytes().length < IV_LENGTH) {
+                throw new IllegalArgumentException("iv长度不能低于16 byte");
+            }
+            try {
+                // 创建密码器
+                Cipher cipher = Cipher.getInstance(DEFAULT_CIPHER_ALGORITHM);
+
+                byte[] byteContent = content.getBytes(UTF_8);
+                byte[] ivSeedBytes = ivSeed.getBytes();
+                //createIVBySeed(ivSeed);
+                byte[] ivBytes = new byte[16];
+                System.arraycopy(ivSeedBytes, 0, ivBytes, 0, 16);
+
+                IvParameterSpec ivSpec = new IvParameterSpec(ivBytes);
+                // 初始化为加密模式的密码器
+                cipher.init(Cipher.ENCRYPT_MODE, getSecretKey(key, useSecureRandom), ivSpec);
+                // 加密
+                byte[] result = cipher.doFinal(byteContent);
+
+                byte[] mergeResult = fillIvIntoResult ? mergeBytes(ivBytes, result) : result;
+                //通过Base64转码返回
+                return java.util.Base64.getEncoder().encodeToString(mergeResult);
+            } catch (Exception ex) {
+                log.warn("AES加密失败:{}", ex);
+            }
+
+            return null;
+        }
+
+
+        /**
+         * AES 解密操作
+         *
+         * @param content 待解密的字符串 BASE64格式
+         * @return 解密后的结果 string
+         */
+        public static String decrypt(String content) {
+
+            return decrypt(content, DEFAULT_KEY, DEFAULT_IV_SEED);
+        }
+
+
+        /**
+         * Decrypt string.
+         *
+         * @param content the content
+         * @param key     the key
+         * @return string
+         */
+        public static String decrypt(String content, String key) {
+            return decrypt(content, key, false);
+        }
+
+        /**
+         * Decrypt string.
+         *
+         * @param content               待解密的字符串 BASE64格式
+         * @param key                   密钥
+         * @param isIvSeedContentResult ivSeed是否在密文中
+         * @return 解密后的结果 string
+         */
+        public static String decrypt(String content, String key, boolean isIvSeedContentResult) {
+            if (content == null || content.length() == 0 || key == null || key.length() == 0) {
+                throw new IllegalArgumentException("密文和密钥不能为空");
+            }
+            if (!isIvSeedContentResult) {
+                return decrypt(content, key, DEFAULT_IV_SEED);
+            }
+            int ivLength = IV_LENGTH;
+
+            byte[] decode = java.util.Base64.getDecoder().decode(content);
+            if (decode.length <= ivLength) {
+                // 没有iv信息
+                throw new IllegalArgumentException("错误的密文");
+            }
+            byte[] ivBytes = new byte[ivLength];
+            byte[] realData = new byte[decode.length - ivLength];
+
+            System.arraycopy(decode, 0, ivBytes, 0, ivLength);
+            System.arraycopy(decode, ivLength, realData, 0, decode.length - ivLength);
+            return decrypt(java.util.Base64.getEncoder().encodeToString(realData), key, ivBytes);
+        }
+
+        /**
+         * AES 解密操作
+         *
+         * @param content 待解密的字符串 BASE64格式
+         * @param key     密钥
+         * @param iv      the iv
+         * @return 解密后的结果 string
+         */
+        public static String decrypt(String content, String key, byte[] iv) {
+            return decrypt(content, key, iv, false);
+        }
+
+        /**
+         * Decrypt string.
+         *
+         * @param content the content
+         * @param key     the key
+         * @param iv      the iv
+         * @return the string
+         */
+        public static String decrypt(String content, String key, String iv) {
+            if (iv == null || iv.getBytes().length < IV_LENGTH) {
+                throw new IllegalArgumentException("iv长度不能低于16 byte");
+            }
+            byte[] ivSeedBytes = iv.getBytes();
+            byte[] ivBytes = new byte[16];
+            System.arraycopy(ivSeedBytes, 0, ivBytes, 0, 16);
+
+            return decrypt(content, key, ivBytes, false);
+        }
+
+
+        /**
+         * AES 解密操作
+         *
+         * @param content         待解密的字符串 BASE64格式
+         * @param key             密钥
+         * @param iv              the iv
+         * @param useSecureRandom 是否对密钥使用随机算法
+         * @return 解密后的结果 string
+         */
+        public static String decrypt(String content, String key, byte[] iv, boolean useSecureRandom) {
+            if (content == null || content.length() == 0 || key == null || key.length() == 0) {
+                throw new IllegalArgumentException("密文和密钥不能为空");
+            }
+            try {
+                //实例化
+                Cipher cipher = Cipher.getInstance(DEFAULT_CIPHER_ALGORITHM);
+                IvParameterSpec ivSpec = new IvParameterSpec(iv);
+                //使用密钥初始化，设置为解密模式
+                cipher.init(Cipher.DECRYPT_MODE, getSecretKey(key, useSecureRandom), ivSpec);
+                //执行操作
+                byte[] result = cipher.doFinal(java.util.Base64.getDecoder().decode(content));
+                log.info("解密完成");
+                return new String(result, "utf-8");
+            } catch (Exception ex) {
+                log.warn("AES解密失败:{}", ex);
+            }
+
+            return null;
+        }
+
+        /**
+         * 生成加密秘钥
+         *
+         * @return
+         */
+        private static SecretKeySpec getSecretKey(final String key, boolean randomKey) {
+            try {
+                if (randomKey) {
+                    //返回生成指定算法密钥生成器的 KeyGenerator 对象
+                    KeyGenerator kg = null;
+                    kg = KeyGenerator.getInstance(KEY_ALGORITHM);
+                    SecureRandom secureRandom = SecureRandom.getInstance("SHA1PRNG");
+                    secureRandom.setSeed(key.getBytes());
+                    //AES 要求密钥长度为 128
+                    kg.init(BLOCK_LENGTH, secureRandom);
+                    //生成一个密钥
+                    SecretKey secretKey = kg.generateKey();
+                    // 转换为AES专用密钥
+                    return new SecretKeySpec(secretKey.getEncoded(), KEY_ALGORITHM);
+                } else {
+                    // 转换为AES专用密钥
+                    return new SecretKeySpec(Arrays.copyOf(key.getBytes(UTF_8), 16), KEY_ALGORITHM);
+                }
+            } catch (Exception ex) {
+                log.warn("AES生成加密秘钥失败:{}", ex);
+                throw new RuntimeException("AES生成加密秘钥失败", ex);
+            }
+        }
+
+
+        /**
+         * 生成16位iv偏移量
+         *
+         * @param seed
+         * @return
+         */
+        private static byte[] createIVBySeed(String seed) {
+            try {
+                SecureRandom secureRandom = SecureRandom.getInstance("SHA1PRNG");
+                secureRandom.setSeed(seed.getBytes());
+                byte[] iv = new byte[16];
+                secureRandom.nextBytes(iv);
+                return iv;
+            } catch (Exception ex) {
+                log.warn("AES生成加密秘钥失败:{}", ex);
+                throw new RuntimeException("AES生成加密秘钥失败", ex);
+            }
+        }
+
+        /**
+         * @param data1
+         * @param data2
+         * @return data1 与 data2拼接的结果
+         */
+        private static byte[] mergeBytes(byte[] data1, byte[] data2) {
+            byte[] data3 = new byte[data1.length + data2.length];
+            System.arraycopy(data1, 0, data3, 0, data1.length);
+            System.arraycopy(data2, 0, data3, data1.length, data2.length);
+            return data3;
+
+        }
+
+
+    }
+
+}

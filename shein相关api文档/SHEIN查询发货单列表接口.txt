@@ -1,0 +1,304 @@
+查询发货单列表
+GET
+/open-api/shipping/delivery
+全托管
+SHEIN自营
+POP
+查询发货单列表
+
+请求参数（请求头）
+收起
+参数名称	数据类型	是否必须	描述
+Content-Type
+string	是	
+x-lt-openKeyId
+string	是	
+访问用户隐私数据时的唯一权限标识 openKeyId
+x-lt-timestamp
+string	是	
+请求时间戳，格式为时间转换为毫秒的值，也就是从1970年1月1日起至今的时间转换为毫秒，如：1583398764000
+x-lt-signature
+string	是	
+接口签名
+x-lt-language
+string	否	
+指定出参语种，默认中文；支持语种:英语:US 法语:FR 西班牙语:ES 德语:DE 中文简体:CN 泰语:TH 巴西葡语:PT 土耳其语：TR
+请求参数（查询参数）
+收起
+参数名称	数据类型	是否必须	描述
+deliveryCode
+string	否	
+endTime
+string	否	
+根据发货单创建时间查询；日期格式 yyyy-MM-dd HH:mm:ss
+page
+integer	否	
+perPage
+integer	否	
+最大200
+startTime
+string	否	
+根据发货单创建时间查询；日期格式 yyyy-MM-dd HH:mm:ss
+返回参数（响应体）
+收起
+数据类型	是否必须	描述
+bbl
+object	否	
+响应异常时的bbl相关信息
+info
+object	否	
+*
+object[]	否	
+npid
+string	否	
+code
+string	是	
+响应编码 成功：0
+info
+object	否	
+count
+int64	否	
+总记录数
+list
+object[]	否	
+分页数组
+addTime
+datetime	否	
+发货时间，发货日期
+deliveryCode
+string	否	
+发货单号
+deliveryOrderDataList
+object[]	否	
+deliveryQuantity
+integer	否	
+尺码维度发货数量
+orderNo
+string	否	
+订单号
+skc
+string	是	
+skc
+skuCode
+string	否	
+sku编码-暂未使用
+deliveryType
+integer	否	
+发货方式：1快递，2送货上门，3定点收货
+deliveryTypeName
+string	否	
+发货方式：快递
+expressCode
+string	否	
+物流单号
+expressCompanyName
+string	否	
+快递公司名称
+expressId
+string	否	
+快递公司
+packageWeight
+double	否	
+包裹重量
+preReceiptTime
+datetime	否	
+预计到货时间
+receiptTime
+datetime	否	
+实际到货时间
+reserveParcelTime
+datetime	否	
+预约取件时间
+sendPackage
+integer	否	
+包裹总数
+supplierWarehouseId
+int64	否	
+仓库id
+supplierWarehouseName
+string	否	
+仓库名称
+takeParcelTime
+datetime	否	
+实际取件时间
+
+msg
+string	否	
+错误描述,成功：OK；支持指定语种出参；
+
+traceId
+string	否	
+请求的唯一标识；用于异常报错跟踪
+
+请求返回示例
+收起
+请求示例
+复制
+curl --location --request GET 'https://openapi.sheincorp.cn/open-api/shipping/delivery?deliveryCode=20250430100099' \
+--header 'x-lt-signature: test' \
+--header 'x-lt-openKeyId: test' \
+--header 'Content-Type: application/json;charset=UTF-8' \
+--header 'x-lt-timestamp: 1752570681772' \
+--data-raw ''
+
+
+返回示例
+复制
+{
+    "code": "0",
+    "msg": "OK",
+    "info": {
+        "count": 296,
+        "list": [
+            {
+                "deliveryCode": "20240124100007",
+                "deliveryType": 1,
+                "deliveryTypeName": "快递/物流送货",
+                "expressId": "chemen",
+                "expressCompanyName": "车门",
+                "expressCode": "S0085029226880",
+                "sendPackage": 10,
+                "packageWeight": 0.00,
+                "takeParcelTime": null,
+                "reserveParcelTime": "2024-01-25 18:33",
+                "addTime": "2024-01-24 13:50:38",
+                "preReceiptTime": "1970-01-01 08:00:01",
+                "receiptTime": "1970-01-01 08:00:01",
+                "supplierWarehouseId": 78377,
+                "supplierWarehouseName": "323432",
+                "deliveryOrderDataList": [
+                    {
+                        "skc": "se2204266637766551",
+                        "skuCode": "I0103yilwrnq",
+                        "orderNo": "B231102500137-1",
+                        "deliveryQuantity": 710
+                    },
+                    {
+                        "skc": "se2204266637766551",
+                        "skuCode": "I0103yilyuw3",
+                        "orderNo": "B231102500137-1",
+                        "deliveryQuantity": 710
+                    },
+                    {
+                        "skc": "se2204266637766551",
+                        "skuCode": "I0103yim0j0g",
+                        "orderNo": "B231102500137-1",
+                        "deliveryQuantity": 710
+                    },
+                    {
+                        "skc": "se2204266637766551",
+                        "skuCode": "I0103yim24bo",
+                        "orderNo": "B231102500137-1",
+                        "deliveryQuantity": 710
+                    },
+                    {
+                        "skc": "se2204266637766551",
+                        "skuCode": "I0103yim4075",
+                        "orderNo": "B231102500137-1",
+                        "deliveryQuantity": 710
+                    },
+                    {
+                        "skc": "se2204266637766551",
+                        "skuCode": "I0103yim5nov",
+                        "orderNo": "B231102500137-1",
+                        "deliveryQuantity": 710
+                    },
+                    {
+                        "skc": "se2204266637766551",
+                        "skuCode": "I0103yim79g5",
+                        "orderNo": "B231102500137-1",
+                        "deliveryQuantity": 710
+                    },
+                    {
+                        "skc": "se2204266637766551",
+                        "skuCode": "I0103yim8u9s",
+                        "orderNo": "B231102500137-1",
+                        "deliveryQuantity": 710
+                    },
+                    {
+                        "skc": "se2204266637766551",
+                        "skuCode": "I0103yimaioa",
+                        "orderNo": "B231102500137-1",
+                        "deliveryQuantity": 710
+                    },
+                    {
+                        "skc": "se2204266637766551",
+                        "skuCode": "I0103yimc0zi",
+                        "orderNo": "B231102500137-1",
+                        "deliveryQuantity": 710
+                    },
+                    {
+                        "skc": "se2204266637766551",
+                        "skuCode": "I0103yimdlcs",
+                        "orderNo": "B231102500137-1",
+                        "deliveryQuantity": 710
+                    },
+                    {
+                        "skc": "se2204266637766551",
+                        "skuCode": "I0103yimf5oe",
+                        "orderNo": "B231102500137-1",
+                        "deliveryQuantity": 710
+                    },
+                    {
+                        "skc": "se2204266637766551",
+                        "skuCode": "I0103yimiv2c",
+                        "orderNo": "B231102500137-1",
+                        "deliveryQuantity": 710
+                    }
+                ]
+            },
+            {
+                "deliveryCode": "20240124100002",
+                "deliveryType": 2,
+                "deliveryTypeName": "送货上门",
+                "expressId": "",
+                "expressCompanyName": "",
+                "expressCode": "",
+                "sendPackage": 2,
+                "packageWeight": 2.00,
+                "takeParcelTime": null,
+                "reserveParcelTime": null,
+                "addTime": "2024-01-24 11:12:22",
+                "preReceiptTime": "1970-01-01 08:00:01",
+                "receiptTime": "1970-01-01 08:00:01",
+                "supplierWarehouseId": 78377,
+                "supplierWarehouseName": "323432",
+                "deliveryOrderDataList": [
+                    {
+                        "skc": "ss23110643492437",
+                        "skuCode": "I3jrx7cgrjdu",
+                        "orderNo": "B240102500419",
+                        "deliveryQuantity": 5
+                    }
+                ]
+            }
+        ]
+    },
+    "bbl": null
+}
+
+
+业务返回错误信息
+收起
+语言
+未解决你的问题，你可以通过 提交工单 获得帮助
+错误码	错误信息	解决方案
+pfmp90201	
+发货开始时间/发货结束时间必须同时传入
+发货开始时间/发货结束时间必须同时传入
+pfmp99400	
+Failed to convert property value of type 'java.lang.String' to required type 'java.time.LocalDateTime' for property 'endTime'; nested exception is org.springframework.core.convert.ConversionFailedException: Failed to convert from type [java.lang.String] to type [@io.swagger.annotations.ApiModelProperty @cn.dotfashion.soa.gspsupport.web.zone.annotation.ZoneConvert java.time.LocalDateTime] for value 'null'; nested exception is java.lang.IllegalArgumentException: Parse attempt failed for value [null];Failed to convert property value of type 'java.lang.String' to required type 'java.time.LocalDateTime' for property 'startTime'; nested exception is org.springframework.core.convert.ConversionFailedException: Failed to convert from type [java.lang.String] to type [@io.swagger.annotations.ApiModelProperty @cn.dotfashion.soa.gspsupport.web.zone.annotation.ZoneConvert java.time.LocalDateTime] for value 'null'; nested exception is java.lang.IllegalArgumentException: Parse attempt failed for value
+检查字段的入参类型
+共2条数据
+限流规则
+收起
+单个开发者接口限流频次：100次/秒
+FAQ
+Q：平台要求要必须打印发货单吗？
+2024-10-11
+A：
+没有。
+Q：为什么发货后，调用查询发货单接口报错“发货订单不存在”
+2024-10-11
+A：
+商家可能在商家后台操作取消了订单，目前开放平台有修改和取消发货单接口，建议商家不要同时在两套系统操作

@@ -1,0 +1,161 @@
+备货单审核列表
+POST
+/open-api/idms/review-orders
+全托管
+通过该接口查询申请备货的审核信息列表，适用全托管，备货到shein仓（SFS）的自运营、半托管模式的商家；
+
+请求参数（请求头）
+收起
+参数名称	数据类型	是否必须	描述
+Content-Type
+string	是	
+application/json
+x-lt-openKeyId
+string	是	
+访问用户隐私数据时的唯一权限标识 openKeyId
+x-lt-timestamp
+string	是	
+请求时间戳，格式为时间转换为毫秒的值，也就是从1970年1月1日起至今的时间转换为毫秒，如：1583398764000
+x-lt-signature
+string	是	
+接口签名
+请求参数（请求体）
+收起
+参数名称	数据类型	是否必须	描述
+skcList
+string[]	否	
+shein skc 编码
+supplierCodeList
+string[]	否	
+供方或号
+orderNoList
+string[]	否	
+备货单号
+addTimeBegin
+string	否	
+开始的创建时间
+addTimeEnd
+string	否	
+结束的创建时间
+pageNum
+string	否	
+页码
+pageSize
+string	否	
+每页数量
+返回参数（响应体）
+收起
+数据类型	是否必须	描述
+code
+string	否	
+成功：0
+
+msg
+string	否	
+成功：OK
+
+info
+object	否	
+count
+integer	否	
+总数
+
+list
+object[]	否	
+备货申请列表
+
+id
+integer	否	
+
+
+imgPath
+string	否	
+skc图片链接
+
+supplierCode
+string	否	
+供方货号
+
+skc
+string	否	
+shein skc 编码
+
+orderMode
+string	否	
+备货申请单的下单方式
+
+applyStatus
+string	否	
+申请状态
+
+orderAccount
+string	否	
+下单账号
+
+stockType
+string	否	
+备货类型
+
+orderSign
+string	否	
+下单标识
+
+applyNotes
+string	否	
+审核说明
+
+orderNo
+string	否	
+备货单号
+
+skuList
+object[]	否	
+备货申请sku信息
+
+skuCode
+string	否	
+shein sku 编码
+
+suffixZh
+string	否	
+属性集
+
+orderCount
+integer	否	
+实际下单数量
+
+adviceCount
+integer	否	
+建议下单数量
+
+addTime
+string	否	
+下单时间
+
+请求返回示例
+收起
+请求示例
+复制
+curl --location --request POST 'https://openapi.sheincorp.cn/open-api/idms/review-orders' \
+--header 'x-lt-signature: test' \
+--header 'x-lt-openKeyId: test' \
+--header 'Content-Type: application/json;charset=UTF-8' \
+--header 'x-lt-timestamp: 1752201122529' \
+--data-raw '{
+ 
+ 
+}'
+
+
+返回示例
+复制
+{
+    "code": "0",
+    "msg": "OK",
+    "info": {
+        "count": 0,
+        "list": []
+    },
+    "bbl": null,
+    "traceId": "666d308310855ef5"
+}

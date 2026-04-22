@@ -1,0 +1,953 @@
+述
+为确保用户数据安全，开放平台提供了通过API授权获取密钥的方式，以避免数据泄漏。开发者在获得SHEIN商家的授权后，将能够获取密钥。该密钥主要用于访问用户的订单、商品等相关数据。
+
+⚠️注意：未经店铺授权，无法调用接口，因此开发者需引导用户先完成授权。
+
+
+
+API授权的好处
+1、数据安全性：API授权可以确保只有经过认证的用户和应用能够访问敏感数据，从而有效减少数据泄漏的风险。
+
+2、 降低人力成本：开发者可以使用标准化的API接口，可以复用开发的应用程序，降低了人工介入和沟通成本，提升商家接入效率。
+
+
+
+API授权流程
+
+
+
+
+1、 开发者拼接授权链接
+开发者的授权链接需要包含域名、appid、重定向链接（需要base64编码）、state，具体说明如下：
+
+字段	是否必填	描述	用途
+Host	必填	生产环境：openapi-sem.sheincorp.com
+测试环境：openapi-sem-test01.dotfashion.cn	决定了授权链接访问的目标服务器，从而确保请求能够正确指向系统环境（生产或测试）
+appid	必填	开发者应用id	用于系统识别店铺授权给哪个应用
+redirectUrl	必填	重定向地址的BASE64编码	用于访问开发者重定向页面，并将tempToken给开发者
+state	必填	开发者自定义值	进入开发者设置的重定向页面，该参数将原样返回，以帮助开发者识别是谁进行了授权
+
+
+⚠️注意：授权域名和调用域名不一致；redirectUrl、state需要增加“&”符号
+
+链接示例：https://${Host}/#/empower?appid=${appid}&redirectUrl=${redirectUrl}&state=${state}
+
+https://openapi-sem.sheincorp.com/#/empower?appid=F9D87342D803BA78E1EE49997162&redirectUrl=aHR0cHM6Ly93d3cuYmFpZHUuY29t&state=AUTH-SHEIN-1624700000000
+复制
+
+
+前端实现URL拼接的示例：
+
+const redirectUrl = window.btoa('https://www.xxx.com'); // 回调地址转 base64
+
+const appid = 'F9D87342D803BA78E1EE49997162'; // 本次授权的 appid（必填）
+
+const state = 'xxx'; // 按原样返回，没提供，则不返回
+
+// 授权地址为（以测试环境为例）：各个环境拼接不同的域名即可
+const testHost = 'openapi-sem-test01.dotfashion.cn'; // 测试环境
+
+const empowerUrl = `https://${testHost}/#/empower?appid=${appid}&redirectUrl=${redirectUrl}&state=${state}`;
+
+// 在新窗口打开这个地址：
+window.open(empowerUrl);
+复制
+
+
+Java实现URL拼接的示例：
+
+ /**
+ * 拼接后的重定向结果：https://openapi-sem.sheincorp.com/#/empower?appid=F9D87342D803BA78E1EE49997162&redirectUrl=aHR0cHM6Ly93d3cuYmFpZHUuY29t&state=AUTH-SHEIN-1624700000000
+ * @param response
+ * @throws IOException
+ */
+@ApiOperation(value = "应用授权", httpMethod = "POST")
+@PostMapping(path = {"/authorizateTempDemo"})
+public void authorizateTempDemo(HttpServletResponse response) throws IOException {
+    // 跳转鉴权路径
+    String authUrl = "https://openapi-sem.sheincorp.com/#/empower";
+
+    // 以下是 GET 参数
+
+    // 必填：跳转回来的地址（注意用 Base64 编码）
+    String redirectUrl = Base64.getEncoder().encodeToString(
+        "https://www.baidu.com".getBytes(StandardCharsets.UTF_8)
+    );
+
+    // SHEIN 门户的应用 appid（必填）
+    String appid = "F9D87342D803BA78E1EE49997162";
+
+    // 选填：自定义参数，可用于回调时的校验是否同一流程
+    String state = "AUTH-SHEIN-" + System.currentTimeMillis();
+
+    // 拼接 URL
+    String url = authUrl
+               + "?appid=" + appid
+               + "&redirectUrl=" + redirectUrl
+               + "&state=" + state;
+
+    System.out.println(url);
+    response.sendRedirect(url);
+}
+复制
+
+
+
+2、店铺授权应用流程
+商家登录SHEIN卖家后台，点击开发者创建的授权链接进入授权页面
+
+a、商家用店铺主账号登录卖家后台，后台链接：SHEIN全球商家中心
+
+
+
+
+
+b、商家进入授权页面；登录后，找到并点击授权链接，以进入授权页面进行相关操作，点击授权按钮后商家会跳转到开发者提供的重定向页面
+
+
+
+
+
+
+
+3、获取tempToken
+用户授权应用后会重定向到开发者页面，并且跳转链接会带上平台返回的tempToken和state数据
+
+重定向链接示例：
+
+http://openapi-platform-test01.sheincorp.cn/api_test/getByTokenMock?appid=10AF15E7DD802804E7140BE2D326D&tempToken=d1a506e0-d064-47ea-8b01-e56acdca2df2&state=OPENAPI
+复制
+
+
+⚠️注意：tempToken在10分钟内有效，遇到tempToken过期，请引导商家重新授权。
+
+
+
+
+
+4、获得店铺秘钥
+开发者通过跳转网站获取tempToken后，后端需要调用接口/open-api/auth/get-by-token获取 openKeyId 与 secretKey 。
+
+⚠️注意：
+
+● 调用/open-api/auth/get-by-token接口时，需要提供的【x-lt-signature】是通过开发者APP的APP id以及APP secret生成的！
+
+● 从/open-api/auth/get-by-token 接口返回的secretKey需要解密后才能用于生成签名。点击查看生成签名规则
+
+在进行 API 调用之前，开发者要确保使用正确的请求域名。不同的应用类型可能会使用不同的 API 域名
+
+应用类型	正式环境	测试环境
+传统平台/自主运营	https://openapi.sheincorp.com	https://openapi-test01.sheincorp.cn
+半托管	https://openapi.sheincorp.com
+代运营（简易平台/全托管）	https://openapi.sheincorp.cn
+SHEIN自营	https://openapi.sheincorp.cn
+其他	https://openapi.sheincorp.cn
+⚠️注意：正式环境的应用不能使用测试环境的域名调用接口。测试环境和正式环境是两套独立的环境，数据不互通。
+
+
+
+
+
+5、 secretKey密钥解密
+目前，开放平台提供Java、PHP、C# 和 Python的加解密代码示例。
+
+⚠️注意：以下代码示例中使用的 secretKey 均为虚构随机码，请务必替换成生产环境中获取到的secretKey
+
+JAVA请求及解密示例：
+
+package cn.dotfashion.soa.openapi.platform.controller.openapi;
+
+import cn.dotfashion.soa.api.constant.ErrorCodeDefine;
+import com.alibaba.fastjson.JSON;
+import io.swagger.annotations.ApiOperation;
+import org.apache.commons.codec.binary.Base64;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.http.client.config.RequestConfig;
+import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.entity.StringEntity;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
+import org.apache.http.util.EntityUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.web.bind.annotation.GetMapping;
+
+import javax.crypto.Cipher;
+import javax.crypto.KeyGenerator;
+import javax.crypto.Mac;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
+
+import java.io.Serializable;
+import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
+import java.util.*;
+
+public class ApiSignDemoUtil {
+
+    private static final String HMAC_SHA256 = "HmacSHA256";
+    private static final String APPID = "在开发者门户中获取";
+    private static final String APP_SECRET_KEY = "在开发者门户中获取";
+    private static final Integer RANDOM_LENGTH = 5;
+    private static final String ENCODING = "UTF-8";
+    private static final String TEST_SERVER = "https://openapi-test01.sheincorp.cn";
+    private static final String API_PATH = "/open-api/auth/get-by-token";
+
+    @GetMapping(path = {"/getByTokenMock"})
+    @ApiOperation(value = "更新用户信息", notes = "getByTokenMock")
+    public Response getByTokenMock(String appid, String tempToken) throws Exception {
+        Date date = new Date();
+        String timestamp = String.valueOf(date.getTime());
+        String signString = appid + "&" + timestamp + "&" + API_PATH;
+        String randomKey = UUID.randomUUID().toString().substring(0, 5);
+        String randomSecretKey = APP_SECRET_KEY + randomKey;
+        String hashValue = ApiSignDemoUtil.hmacSha256(signString, randomSecretKey);
+        String base64Value = ApiSignDemoUtil.base64Encode(hashValue);
+        String signature = randomKey + base64Value;
+        String url = TEST_SERVER + API_PATH;
+
+        Map<String, String> headers = new HashMap<>();
+        headers.put("Content-Type", "application/json;charset=UTF-8");
+        headers.put("x-lt-appid", appid);
+        headers.put("x-lt-timestamp", timestamp);
+        headers.put("x-lt-signature", signature);
+
+        String responseStr = ApiSignDemoUtil.doPost(url, headers, "{\"tempToken\":\"" + tempToken + "\"}");
+        System.out.println(responseStr);
+
+        Response response = JSON.parseObject(responseStr, Response.class);
+        String secretKey = response.getInfo().getSecretKey();
+        String decryptSecretKey = AESTools.decrypt(secretKey, APP_SECRET_KEY);
+        response.getInfo().setSecretKey(decryptSecretKey);
+        return response;
+    }
+
+    public static String hmacSha256(String message, String secret) {
+        String hash = "";
+        try {
+            Mac mac = Mac.getInstance(HMAC_SHA256);
+            SecretKeySpec secretKey = new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), HMAC_SHA256);
+            mac.init(secretKey);
+            byte[] bytes = mac.doFinal(message.getBytes());
+            hash = byteArrayToHexString(bytes);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return hash;
+    }
+
+    private static String byteArrayToHexString(byte[] b) {
+        StringBuilder hs = new StringBuilder();
+        String tmp;
+        for (int n = 0; b != null && n < b.length; n++) {
+            tmp = Integer.toHexString(b[n] & 0xFF);
+            if (tmp.length() == 1) {
+                hs.append('0');
+            }
+            hs.append(tmp);
+        }
+        return hs.toString().toLowerCase();
+    }
+
+    public static String base64Encode(String data) {
+        String result = "";
+        if (StringUtils.isNotBlank(data)) {
+            result = new String(Base64.encodeBase64(data.getBytes(StandardCharsets.UTF_8)), StandardCharsets.UTF_8);
+        }
+        return result;
+    }
+
+    public static String doPost(String url, Map<String, String> headers, String json) throws Exception {
+        // 创建httpClient对象
+        CloseableHttpClient httpClient = HttpClients.createDefault();
+        // 创建http对象
+        HttpPost httpPost = new HttpPost(url);
+
+        /**
+         * setConnectTimeout：设置连接超时时间，单位毫秒。
+         * setConnectionRequestTimeout：设置从connect Manager(连接池)获取Connection 
+         * 超时时间，单位毫秒。这个属性是新加的属性，因为目前版本是可以共享连接池的。
+         * setSocketTimeout：请求获取数据的超时时间(即响应时间)，单位毫秒。
+         * 如果访问一个接口，多少时间内无法返回数据，就直接放弃此次调用。
+         */
+        RequestConfig requestConfig = RequestConfig.custom().build();
+        httpPost.setConfig(requestConfig);
+
+        // 封装请求头
+        if (headers != null) {
+            Set<Map.Entry<String, String>> entrySet = headers.entrySet();
+            for (Map.Entry<String, String> entry : entrySet) {
+                httpPost.setHeader(entry.getKey(), entry.getValue());
+            }
+        }
+        // 封装请求参数
+        if (json != null) {
+            httpPost.setEntity(new StringEntity(json, ENCODING));
+        }
+        try (CloseableHttpResponse httpResponse = httpClient.execute(httpPost)) {
+            // 执行请求并获得响应结果
+            return EntityUtils.toString(httpResponse.getEntity(), ENCODING);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+    /**
+     * AESTools
+     */
+    public static class AESTools {
+
+        private static final Logger log = LoggerFactory.getLogger(AESTools.class);
+        private static final String UTF_8 = "utf-8";
+        private static final String KEY_ALGORITHM = "AES";
+        private static final Integer BLOCK_LENGTH = 128;
+
+        private static final String DEFAULT_CIPHER_ALGORITHM = "AES/CBC/PKCS5Padding";
+        private static final String DEFAULT_KEY = "space-station-default-key";
+        private static final String DEFAULT_IV_SEED = "space-station-default-iv";
+        private static final Integer IV_LENGTH = 16;
+
+        public static String encrypt(String content) {
+            return encrypt(content, DEFAULT_KEY);
+        }
+
+        public static String encrypt(String content, String key) {
+            return encrypt(content, key, DEFAULT_IV_SEED);
+        }
+
+        public static String encrypt(String content, String key, String ivSeed) {
+            return encrypt(content, key, ivSeed, false);
+        }
+
+        public static String encrypt(String content, String key, String ivSeed, boolean useSecureRandom) {
+            return encrypt(content, key, ivSeed, useSecureRandom, false);
+        }
+
+        public static String encrypt(
+            String content, String key, String ivSeed, boolean useSecureRandom, boolean fillIvIntoResult) {
+            if (content == null || content.length() == 0 || key == null || key.length() == 0 || ivSeed == null || ivSeed.length() == 0) {
+                throw new IllegalArgumentException("加密内容/密钥/iv不能为空");
+            }
+            if (ivSeed.getBytes().length < IV_LENGTH) {
+                throw new IllegalArgumentException("iv长度不能低于16 byte");
+            }
+            try {
+                Cipher cipher = Cipher.getInstance(DEFAULT_CIPHER_ALGORITHM);
+                byte[] byteContent = content.getBytes(UTF_8);
+                byte[] ivSeedBytes = ivSeed.getBytes();
+                byte[] ivBytes = new byte[16];
+                System.arraycopy(ivSeedBytes, 0, ivBytes, 0, 16);
+                IvParameterSpec ivSpec = new IvParameterSpec(ivBytes);
+
+                cipher.init(Cipher.ENCRYPT_MODE, getSecretKey(key, useSecureRandom), ivSpec);
+
+                byte[] result = cipher.doFinal(byteContent);
+                byte[] mergeResult = fillIvIntoResult ? mergeBytes(ivBytes, result) : result;
+                return java.util.Base64.getEncoder().encodeToString(mergeResult);
+            } catch (Exception ex) {
+                log.warn("AES加密失败:{}", ex);
+            }
+            return null;
+        }
+
+        public static String decrypt(String content) {
+            return decrypt(content, DEFAULT_KEY, DEFAULT_IV_SEED);
+        }
+
+        public static String decrypt(String content, String key) {
+            return decrypt(content, key, false);
+        }
+
+        public static String decrypt(String content, String key, boolean isIvSeedContentResult) {
+            if (content == null || content.length() == 0 || key == null || key.length() == 0) {
+                throw new IllegalArgumentException("密文和密钥不能为空");
+            }
+            if (!isIvSeedContentResult) {
+                return decrypt(content, key, DEFAULT_IV_SEED);
+            }
+            int ivLength = IV_LENGTH;
+            byte[] decode = java.util.Base64.getDecoder().decode(content);
+            if (decode.length <= ivLength) {
+                throw new IllegalArgumentException("错误的密文");
+            }
+            byte[] ivBytes = new byte[ivLength];
+            byte[] realData = new byte[decode.length - ivLength];
+            System.arraycopy(decode, 0, ivBytes, 0, ivLength);
+            System.arraycopy(decode, ivLength, realData, 0, decode.length - ivLength);
+            return decrypt(java.util.Base64.getEncoder().encodeToString(realData), key, ivBytes);
+        }
+
+        public static String decrypt(String content, String key, byte[] iv) {
+            return decrypt(content, key, iv, false);
+        }
+
+        public static String decrypt(String content, String key, String iv) {
+            if (iv == null || iv.getBytes().length < IV_LENGTH) {
+                throw new IllegalArgumentException("iv长度不能低于16 byte");
+            }
+            byte[] ivSeedBytes = iv.getBytes();
+            byte[] ivBytes = new byte[16];
+            System.arraycopy(ivSeedBytes, 0, ivBytes, 0, 16);
+            return decrypt(content, key, ivBytes, false);
+        }
+
+        public static String decrypt(String content, String key, byte[] iv, boolean useSecureRandom) {
+            if (content == null || content.length() == 0 || key == null || key.length() == 0) {
+                throw new IllegalArgumentException("密文和密钥不能为空");
+            }
+            try {
+                Cipher cipher = Cipher.getInstance(DEFAULT_CIPHER_ALGORITHM);
+                IvParameterSpec ivSpec = new IvParameterSpec(iv);
+                cipher.init(Cipher.DECRYPT_MODE, getSecretKey(key, useSecureRandom), ivSpec);
+
+                byte[] result = cipher.doFinal(java.util.Base64.getDecoder().decode(content));
+                log.info("解密完成");
+                return new String(result, "utf-8");
+            } catch (Exception ex) {
+                log.warn("AES解密失败:{}", ex);
+            }
+            return null;
+        }
+
+        private static SecretKeySpec getSecretKey(final String key, boolean randomKey) {
+            try {
+                if (randomKey) {
+                    KeyGenerator kg = KeyGenerator.getInstance(KEY_ALGORITHM);
+                    SecureRandom secureRandom = SecureRandom.getInstance("SHA1PRNG");
+                    secureRandom.setSeed(key.getBytes());
+                    kg.init(BLOCK_LENGTH, secureRandom);
+                    SecretKey secretKey = kg.generateKey();
+                    return new SecretKeySpec(secretKey.getEncoded(), KEY_ALGORITHM);
+                } else {
+                    return new SecretKeySpec(Arrays.copyOf(key.getBytes(UTF_8), 16), KEY_ALGORITHM);
+                }
+            } catch (Exception ex) {
+                log.warn("AES生成加密秘钥失败:{}", ex);
+                throw new RuntimeException("AES生成加密秘钥失败", ex);
+            }
+        }
+
+        private static byte[] createIVBySeed(String seed) {
+            try {
+                SecureRandom secureRandom = SecureRandom.getInstance("SHA1PRNG");
+                secureRandom.setSeed(seed.getBytes());
+                byte[] iv = new byte[16];
+                secureRandom.nextBytes(iv);
+                return iv;
+            } catch (Exception ex) {
+                log.warn("AES生成加密秘钥失败:{}", ex);
+                throw new RuntimeException("AES生成加密秘钥失败", ex);
+            }
+        }
+
+        private static byte[] mergeBytes(byte[] data1, byte[] data2) {
+            byte[] data3 = new byte[data1.length + data2.length];
+            System.arraycopy(data1, 0, data3, 0, data1.length);
+            System.arraycopy(data2, 0, data3, data1.length, data2.length);
+            return data3;
+        }
+    }
+
+    public static class Response implements Serializable {
+        private String code;
+        private String msg;
+        private AuthResultVo info;
+
+        public static Response buildSuccessResponseWithInfo(AuthResultVo info) {
+            Response response = new Response();
+            response.setInfo(info);
+            response.setCode(ErrorCodeDefine.MessageCode.OK.getCode());
+            response.setMsg(ErrorCodeDefine.MessageCode.OK.getMsg());
+            return response;
+        }
+
+        public String getCode() {
+            return code;
+        }
+
+        public void setCode(String code) {
+            this.code = code;
+        }
+
+        public String getMsg() {
+            return msg;
+        }
+
+        public void setMsg(String msg) {
+            this.msg = msg;
+        }
+
+        public AuthResultVo getInfo() {
+            return info;
+        }
+
+        public void setInfo(AuthResultVo info) {
+            this.info = info;
+        }
+
+        public class AuthResultVo {
+            private String secretKey;
+            private String appid;
+            private String openKeyId;
+            private String state;
+
+            public String getSecretKey() {
+                return secretKey;
+            }
+
+            public void setSecretKey(String secretKey) {
+                this.secretKey = secretKey;
+            }
+
+            public String getAppid() {
+                return appid;
+            }
+
+            public void setAppid(String appid) {
+                this.appid = appid;
+            }
+
+            public String getOpenKeyId() {
+                return openKeyId;
+            }
+
+            public void setOpenKeyId(String openKeyId) {
+                this.openKeyId = openKeyId;
+            }
+
+            public String getState() {
+                return state;
+            }
+
+            public void setState(String state) {
+                this.state = state;
+            }
+        }
+    }
+}
+复制
+
+PHP加解密代码示例:
+
+<?php
+
+$data = "123456"; // 待加密的数据
+
+$key = "0D8BD3F0AC9F12B0B6B6876527D0175F"; // 解密用的秘钥，应用管理页面上的 appSecretKey
+
+$iv = "space-station-de"; // 固定 IV
+
+$encrypted_data = base64_decode('IULL9EKxPobs/B+CED6flQ=='); // 待解密字段
+
+// 解密示例
+$decrypted_data = openssl_decrypt($encrypted_data, "AES-128-CBC", $key, OPENSSL_RAW_DATA, $iv);
+
+// 加密示例
+$encrypted_data1 = openssl_encrypt($data, "AES-128-CBC", $key, OPENSSL_RAW_DATA, $iv);
+
+$base64_encoded = base64_encode($encrypted_data1); // 将二进制数据编码为 base64
+
+// 输出加密后的结果
+echo $base64_encoded . "\n";
+
+// 输出解密后的结果
+echo $decrypted_data;
+复制
+
+C#加解密代码示例：
+
+using System;
+using System.Text;
+using Org.BouncyCastle.Crypto;
+using Org.BouncyCastle.Crypto.Parameters;
+using Org.BouncyCastle.Security;
+
+public class Program
+{
+    public static void Main()
+    {
+        var secretKey = "E547DCB619824189AD3A532546AE37F9";
+        var appSecretKey = "698E4F20DFBA4B85B2291C2BCB7381C5";
+        var encryptedsecretKey = "Um6W8uVjabRyt5zJI3hw/38ke8dvUq1o6Vkk1f/Gzjt+sWGeUpYBIFTk7/xVHhJy";
+
+        var decryptedSecretKey = AESTools.Decrypt(encryptedsecretKey, appSecretKey);
+        Console.WriteLine($"decryptedSecretKey {decryptedSecretKey} = secretkey {secretKey}");
+
+        secretKey = "E547DCB619824189AD3A532546AE37F9";
+        appSecretKey = "698E4F20DFBA4B85B2291C2BCB7381C5";
+        encryptedsecretKey = AESTools.Encrypt(secretKey, appSecretKey);
+
+        Console.WriteLine($"secretKey {secretKey} encrypted with {appSecretKey} = encryptedsecretKey {encryptedsecretKey}");
+
+        decryptedSecretKey = AESTools.Decrypt(encryptedsecretKey, appSecretKey);
+        Console.WriteLine($"decryptedSecretKey {decryptedSecretKey} = secretkey {secretKey}");
+    }
+
+    public static class AESTools
+    {
+        private static readonly string KEY_ALGORITHM = "AES";
+        private static readonly int BLOCK_LENGTH = 128;
+        private static readonly string DEFAULT_CIPHER_ALGORITHM = "AES/CBC/PKCS5Padding";
+        private static readonly string DEFAULT_IV_SEED = "space-station-de";
+        private static readonly int IV_LENGTH = 16;
+
+        public static string Encrypt(string content, string key)
+        {
+            return Encrypt(content, key, DEFAULT_IV_SEED);
+        }
+
+        public static string Encrypt(string content, string key, string ivSeed)
+        {
+            if (string.IsNullOrEmpty(content) || string.IsNullOrEmpty(key))
+            {
+                throw new ArgumentException("text and key cannot be empty");
+            }
+            try
+            {
+                byte[] byteContent = Encoding.UTF8.GetBytes(content);
+                var ivSeedBytes = Encoding.UTF8.GetBytes(ivSeed);
+                if (ivSeedBytes == null || ivSeedBytes.Length < IV_LENGTH)
+                {
+                    throw new ArgumentException("iv cannot be shorter than 16 bytes");
+                }
+                byte[] ivBytes = new byte[16];
+                Array.Copy(ivSeedBytes, 0, ivBytes, 0, 16);
+
+                IBufferedCipher cipher = CipherUtilities.GetCipher(DEFAULT_CIPHER_ALGORITHM);
+                cipher.Init(
+                    true,
+                    new ParametersWithIV(
+                        ParameterUtilities.CreateKeyParameter(KEY_ALGORITHM, Encoding.UTF8.GetBytes(key.Substring(0, IV_LENGTH))),
+                        ivBytes
+                    )
+                );
+                byte[] encryptedBytes = cipher.DoFinal(byteContent);
+                return Convert.ToBase64String(encryptedBytes);
+            }
+            catch (Exception ex)
+            {
+                // 可以根据需要添加错误处理逻辑
+            }
+            return null;
+        }
+
+        public static string Decrypt(string content, string key)
+        {
+            return Decrypt(content, key, DEFAULT_IV_SEED);
+        }
+
+        public static string Decrypt(string content, string key, string iv)
+        {
+            if (string.IsNullOrEmpty(content) || string.IsNullOrEmpty(key))
+            {
+                throw new ArgumentException("Encrypted text and key cannot be empty");
+            }
+            try
+            {
+                var ivSeedBytes = Encoding.Default.GetBytes(iv);
+                if (ivSeedBytes == null || ivSeedBytes.Length < IV_LENGTH)
+                {
+                    throw new ArgumentException("iv cannot be shorter than 16 bytes");
+                }
+                byte[] ivBytes = new byte[16];
+                Array.Copy(ivSeedBytes, 0, ivBytes, 0, 16);
+
+                IBufferedCipher cipher = CipherUtilities.GetCipher(DEFAULT_CIPHER_ALGORITHM);
+
+                byte[] toDecrypt = Convert.FromBase64String(content);
+                cipher.Init(
+                    false,
+                    new ParametersWithIV(
+                        ParameterUtilities.CreateKeyParameter(KEY_ALGORITHM, Encoding.UTF8.GetBytes(key.Substring(0, IV_LENGTH))),
+                        ivBytes
+                    )
+                );
+                byte[] plainBytes = cipher.DoFinal(toDecrypt);
+                return Encoding.ASCII.GetString(plainBytes);
+            }
+            catch (Exception ex)
+            {
+                // 可以根据需要添加错误处理逻辑
+            }
+            return null;
+        }
+    }
+}
+复制
+Python加解密代码示例：
+
+# pip安装pycryptodome.
+import base64
+import logging
+from Crypto.Cipher import AES
+from Crypto.Random import get_random_bytes
+from Crypto.Util.Padding import pad, unpad
+
+UTF_8 = "utf-8"
+KEY_ALGORITHM = "AES"
+BLOCK_LENGTH = 128
+DEFAULT_IV_SEED = "space-station-default-iv"
+IV_LENGTH = 16
+
+
+def encrypt(content, key, ivSeed=DEFAULT_IV_SEED, useSecureRandom=False, fillIvIntoResult=False):
+    if not content or len(content) == 0 or not key or len(key) == 0 or not ivSeed or len(ivSeed) == 0:
+        raise ValueError("content/key/ivSeed must be non-empty")
+    if len(ivSeed.encode()) < IV_LENGTH:
+        raise ValueError("ivSeed must be at least 16 bytes long")
+    try:
+        # create cipher.
+        cipher = AES.new(get_secret_key(key, useSecureRandom), AES.MODE_CBC, get_iv(ivSeed))
+        byte_content = content.encode(UTF_8)
+        result = cipher.encrypt(pad(byte_content, AES.block_size))
+        merge_result = result if not fillIvIntoResult else merge_bytes(get_iv(ivSeed), result)
+        # Return via Base64 transcoding.
+        base64_result = base64.b64encode(merge_result).decode(UTF_8)
+        return base64_result
+    except Exception as ex:
+        logging.warning("AES encryption failed: %s", ex)
+        return None
+
+
+def get_secret_key(key, randomKey):
+    try:
+        if randomKey:
+            # 这里的PKCS5Cipher和KeyGenerator并不是pycryptodome常用API，实际要注意替换
+            from Crypto.Random import get_random_bytes as grb
+            from Crypto.Cipher import PKCS5Cipher   # 仅为示例，需根据实际库调整
+            kg = PKCS5Cipher.KeyGenerator(KEY_ALGORITHM)
+            secure_random = get_random_bytes(16)
+            kg.init(BLOCK_LENGTH, secure_random)
+            secret_key = kg.generate_key()
+            return secret_key.export_key()
+        else:
+            return key.encode(UTF_8)[:16]
+    except Exception as ex:
+        logging.warning("AES failed to generate encryption key: %s", ex)
+        raise RuntimeError("AES failed to generate encryption key", ex)
+
+
+def get_iv(ivSeed):
+    ivSeedBytes = ivSeed.encode()
+    ivBytes = bytearray(16)
+    ivBytes[:] = ivSeedBytes[:16]
+    return bytes(ivBytes)
+
+
+def merge_bytes(data1, data2):
+    data3 = bytearray(data1) + bytearray(data2)
+    return bytes(data3)
+
+
+def decrypt(content, key, iv=DEFAULT_IV_SEED, useSecureRandom=False):
+    if not iv or len(iv.encode(UTF_8)) < IV_LENGTH:
+        raise ValueError("ivSeed must be at least 16 bytes long")
+    iv_seed_bytes = iv.encode(UTF_8)
+    iv_bytes = bytearray(16)
+    iv_bytes[:] = iv_seed_bytes[:16]
+    if not content or not key:
+        raise ValueError("Ciphertext and key cannot be empty")
+    try:
+        cipher = AES.new(get_secret_key(key, useSecureRandom), AES.MODE_CBC, iv_bytes)
+        result = cipher.decrypt(base64.b64decode(content))
+        return unpad(result, AES.block_size).decode(UTF_8)
+    except Exception as ex:
+        logging.warning("AES decryption failed: %s", ex)
+        return None
+
+
+# appSecretKey.
+encryption_key = "14ABE7A4222647CB945DADC76740BA73"
+data = "lr4JDSqQkRyZ2YAosX3ZRQ=="
+
+decrypt_result = decrypt(data, encryption_key)
+print(decrypt_result)
+
+encrypt_result = encrypt(decrypt_result, encryption_key)
+print(encrypt_result)
+
+print(encrypt_result == data)
+复制
+
+
+JavaScript请求及解密示例：
+
+const crypto = require('crypto');
+const fetch = require('node-fetch');
+
+class AESTools {
+    static UTF_8 = 'utf-8';
+    static KEY_ALGORITHM = 'AES';
+    static BLOCK_LENGTH_BITS = 128;
+    static KEY_LENGTH_BYTES = 16;
+    static IV_LENGTH_BYTES = 16;
+    static DEFAULT_CIPHER_ALGORITHM = 'aes-128-cbc';
+    static DEFAULT_KEY = 'space-station-default-key';
+    static DEFAULT_IV_SEED = 'space-station-default-iv';
+
+    /**
+     * 从字符串密钥派生出16字节的 Buffer 密钥（截断或填充）
+     * @param {string} key
+     * @returns {Buffer} 16字节的密钥
+     */
+    static getSecretKey(key) {
+        const keyBuf = Buffer.from(key, this.UTF_8);
+        const result = Buffer.alloc(this.KEY_LENGTH_BYTES);
+        keyBuf.copy(result, 0, 0, keyBuf.length);
+        return result;
+    }
+
+    /**
+     * 从字符串种子派生出16字节的 Buffer IV（初始化向量）
+     * @param {string} ivSeed
+     * @returns {Buffer} 16字节的IV
+     */
+    static getIV(ivSeed) {
+        if (!ivSeed) {
+            throw new Error('ivSeed 不能为空');
+        }
+        const ivBuf = Buffer.from(ivSeed, this.UTF_8);
+        if (ivBuf.length < this.IV_LENGTH_BYTES) {
+            throw new Error(`iv长度不能低于 ${this.IV_LENGTH_BYTES} byte`);
+        }
+        return ivBuf.slice(0, this.IV_LENGTH_BYTES);
+    }
+
+    /**
+     * AES 解密操作
+     * @param {string} content - Base64 编码的密文
+     * @param {object} options - 解密选项
+     * @param {string} [options.key=DEFAULT_KEY] - 解密密钥
+     * @param {string} [options.ivSeed=DEFAULT_IV_SEED] - IV 种子 (当 isIvInContent=false 时使用)
+     * @param {boolean} [options.isIvInContent=false] - 密文是否包含了 IV
+     * @returns {string|null} 解密后的明文
+     */
+    static decrypt(content, { key = this.DEFAULT_KEY, ivSeed = this.DEFAULT_IV_SEED, isIvInContent = false } = {}) {
+        if (!content || !key) {
+            throw new Error('密文和密钥不能为空');
+        }
+
+        try {
+            const keyBytes = this.getSecretKey(key);
+            let ivBytes;
+            let contentToDecrypt;
+
+            if (isIvInContent) {
+                const decodedBuf = Buffer.from(content, 'base64');
+                if (decodedBuf.length <= this.IV_LENGTH_BYTES) {
+                    throw new Error("错误的密文");
+                }
+                ivBytes = decodedBuf.slice(0, this.IV_LENGTH_BYTES);
+                const realData = decodedBuf.slice(this.IV_LENGTH_BYTES);
+                contentToDecrypt = realData.toString('base64');
+            } else {
+                ivBytes = this.getIV(ivSeed);
+                contentToDecrypt = content;
+            }
+
+            const decipher = crypto.createDecipheriv(this.DEFAULT_CIPHER_ALGORITHM, keyBytes, ivBytes);
+
+            let decrypted = decipher.update(contentToDecrypt, 'base64', this.UTF_8);
+            decrypted += decipher.final(this.UTF_8);
+            return decrypted;
+        } catch (ex) {
+            console.error("AES解密失败:", ex);
+            return null;
+        }
+    }
+}
+
+/**
+ * 计算 HMAC-SHA256 哈希值
+ * @param {string} message - 待哈希的消息
+ * @param {string} secret - 密钥
+ * @returns {string} 十六进制格式的哈希字符串
+ */
+function hmacSha256(message, secret) {
+    return crypto.createHmac('sha256', secret)
+                 .update(message)
+                 .digest('hex');
+}
+
+/**
+ * 对字符串进行 Base64 编码
+ * @param {string} data - 待编码的字符串
+ * @returns {string} Base64 编码结果
+ */
+function base64Encode(data) {
+    return Buffer.from(data, 'utf8').toString('base64');
+}
+
+/**
+ * 发起 POST 请求
+ * @param {string} url - 请求地址
+ * @param {object} headers - 请求头
+ * @param {string} jsonPayload - JSON 格式的请求体
+ * @returns {Promise<string>} 响应体字符串
+ */
+async function doPost(url, headers, jsonPayload) {
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: headers,
+            body: jsonPayload
+        });
+        if (!response.ok) {
+            console.error(`HTTP请求失败! 状态码: ${response.status}`);
+        }
+        return response.text();
+    } catch(error) {
+        console.error("doPost 请求异常:", error);
+        return null;
+    }
+}
+
+/**
+ * @param {string} appid - 应用ID
+ * @param {string} tempToken - 临时Token
+ */
+async function getByTokenMock(appid, tempToken) {
+    const APP_SECRET_KEY = "在开发者门户中获取";
+    const TEST_SERVER = "https://openapi-test01.sheincorp.cn";
+    const API_PATH = "/open-api/auth/get-by-token";
+
+    const timestamp = String(Date.now());
+    const signString = `${appid}&${timestamp}&${API_PATH}`;
+
+    const randomKey = crypto.randomBytes(16).toString('hex').substring(0, 5);
+    const randomSecretKey = APP_SECRET_KEY + randomKey;
+
+    const hashValue = hmacSha256(signString, randomSecretKey);
+    const base64Value = base64Encode(hashValue);
+    const signature = randomKey + base64Value;
+    const url = TEST_SERVER + API_PATH;
+
+    const headers = {
+        'Content-Type': 'application/json;charset=UTF-8',
+        'x-lt-appid': appid,
+        'x-lt-timestamp': timestamp,
+        'x-lt-signature': signature
+    };
+    const body = JSON.stringify({ tempToken });
+
+    console.log("正在请求 URL:", url);
+    const responseStr = await doPost(url, headers, body);
+    if (!responseStr) {
+        console.log("请求失败，未能获取响应。");
+        return;
+    }
+    console.log("收到的原始响应:", responseStr);
+
+    const response = JSON.parse(responseStr);
+    const encryptedSecretKey = response.info.secretKey;
+    
+    const decryptedSecretKey = AESTools.decrypt(encryptedSecretKey, { key: APP_SECRET_KEY });
+    
+    response.info.secretKey = decryptedSecretKey;
+    console.log("解密后的 Response:", JSON.stringify(response, null, 2));
+    return response;
+}
+复制

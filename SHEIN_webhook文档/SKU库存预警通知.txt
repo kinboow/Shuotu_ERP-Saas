@@ -1,0 +1,51 @@
+SKU库存预警通知
+/inventory_warning_notice
+自运营
+事件编码：inventory_warning_notice
+
+该接口为webhook消息说明，具体接入方式可查看文档：https://open.sheincorp.com/documents/system/3b13b1c5-525a-4758-a2b1-056bde083e2c
+
+消息属性
+收起
+参数名称	数据类型	是否必须	描述
+sendTimestamp
+long	否	
+事件发送的时间戳
+skcName
+string	否	
+平台生成的SKC；对应发布接口的skc_name
+skuCode
+string	否	
+平台生成的SKU；对应发布接口的sku_code
+salesDay
+integer	否	
+SKU可售天数
+salesStatus
+string	否	
+SKU预警状态；1是即将售罄；2是库存告急；3是库存充足
+usableStock
+integer	否	
+当前可用库存数量
+
+消息示例
+收起
+{
+	"salesDay": 25,
+	"salesStatus": "3",
+	"sendTimestamp": 1745323647702,
+	"skcName": "sh2411296141465675",
+	"skuCode": "I64q52s2l4ng",
+	"usableStock": 25
+}
+
+
+复制
+FAQ
+Q：如何设置库存预警？
+2025-05-26
+A：
+平台支持库存的预警 webhook，旨在帮助商家更好地管理库存，确保商家及时了解到即将售罄的 SKU。ERP 可通过接入 webhook 帮助商家做好库存预警。SKU 库存预警通知：/inventory_warning_notice
+Q：Webhook消息发送失败了，平台会有重试机制吗？
+2025-10-30
+A：
+如果平台将 Webhook 消息推送到开发者的回调地址后，开发者没有及时响应，会触发失败重推机制：非订单消息： 平台只会重试 1次。订单事件： 平台会重试 2次。重试时间： 第一次重试的时间大约为30分钟至1小时之间。如有进一步问题，请联系开放平台的工单支持进行咨询

@@ -1,0 +1,144 @@
+JIT母单及子单对应关系查询接口
+GET
+/open-api/order/get-mothe-child-orders
+全托管
+SHEIN自营
+POP
+1.入参orderNos，selectJitMother必填，orderNos最多支持200个订单
+
+2.info是个列表，列表实体必返回请求的订单号，motherOrChildOrders=空列表（不为null）的情况：
+
+1）订单的供应商与请求的供应商不一致，
+
+2）非JIt订单
+
+3）查询的订单与selectJitMother不一致
+
+
+
+实现逻辑：遍历请求订单编号，校验，如果订单是JIt母单 && 请求查询母单 则motherOrChildOrders为对应的子单信息
+
+如果订单是JIt子单 && 请求查询非母单 且 则motherOrChildOrders为对应的母单信息
+
+如果订单是JIt合单 && 请求查询非母单 且 则motherOrChildOrders为对应的母单信息
+
+
+
+code=0返回成功，其他为异常，异常信息取msg
+
+请求参数（请求头）
+收起
+参数名称	数据类型	是否必须	描述
+Content-Type
+string	是	
+x-lt-openKeyId
+string	是	
+访问用户隐私数据时的唯一权限标识 openKeyId
+x-lt-timestamp
+string	是	
+请求时间戳，格式为时间转换为毫秒的值，也就是从1970年1月1日起至今的时间转换为毫秒，如：1583398764000
+x-lt-signature
+string	是	
+接口签名
+请求参数（查询参数）
+收起
+参数名称	数据类型	是否必须	描述
+orderNos
+string	是	
+采购单号，支持批量，一次最多请求200采购单号。
+selectJitMother
+integer	是	
+1、是(表示要查询的是母单) ；2、否（表示要查询的是子单，包括合单）
+返回参数（响应体）
+收起
+数据类型	是否必须	描述
+code
+string	否	
+状态码
+msg
+string	否	
+提示信息
+info
+object[]	否	
+响应信息
+orderNo
+string	是	
+查询订单号
+motherOrChildOrders
+object[]	是	
+如果是JIt母单，则列表存其关联子单；如果是Jit子单或JIt合单，则表存其关联母单，否则为空列表[]
+orderNo
+string	否	
+关联的订单号
+status
+string	否	
+订单状态：1待下单（暂时不支持），2已下单，3发货中，4已送货，5已收货，6已查验，7已退货，8已完成，9无货下架，10已作废，11待审核，12分单中 13待退货 14全部触发
+statusName
+string	否	
+订单状态：1待下单（暂时不支持），2已下单，3发货中，4已送货，5已收货，6已查验，7已退货，8已完成，9无货下架，10已作废，11待审核，12分单中 13待退货 14全部触发
+error
+string	否	
+错误码
+traceId
+string	否	
+请求的唯一标识；用于异常报错跟踪
+
+请求返回示例
+收起
+请求示例
+复制
+curl --location --request GET 'https://openapi.sheincorp.cn/open-api/order/get-mothe-child-orders?orderNos=J230517600016,J230619600017,J230614600034&selectJitMother=1' \
+--header 'x-lt-signature: test' \
+--header 'x-lt-openKeyId: test' \
+--header 'Content-Type: application/json;charset=UTF-8' \
+--header 'x-lt-timestamp: 1752570729613' \
+--header 'language: EN' \
+--data-raw ''
+
+
+返回示例
+复制
+{
+    "code": "0",
+    "msg": "",
+    "info": [
+        {
+            "orderNo": "J230517600016",
+            "motherOrChildOrders": []
+        },
+        {
+            "orderNo": "J230619600017",
+            "motherOrChildOrders": []
+        },
+        {
+            "orderNo": "J230614600034",
+            "motherOrChildOrders": []
+        }
+    ],
+    "error": null
+}
+
+
+业务返回错误信息
+收起
+语言
+未解决你的问题，你可以通过 提交工单 获得帮助
+错误码	错误信息	解决方案
+No Data
+暂无数据
+限流规则
+收起
+单个开发者接口限流频次：40次/秒
+FAQ
+Q：一次最多请求多少条数据？
+2025-05-26
+A：
+采购单号支持批量查询，一次最多请求200采购单号。
+Q：为何motherOrChildOrders数据为空？一般是什么原因？
+2025-05-26
+A：
+日常的原因有：1）供应商ID出错，注意订单的供应商与请求的供应商不一致；2）非JIT订单；3）查询的订单号是母单，selectJitMother为子单；4）查询的订单号是子单，selectJitMother为母单；
+Q：如何查询母单信息？如何查询子单信息？
+2025-05-26
+A：
+a、查询母单下子单的基本信息：入参是母单订单号并且selectJitMother=1，则出参返回子单信息b、查询子单的基本信息：入参是子单或合单订单号并且selectJitMother=2，则出参返回母单信息

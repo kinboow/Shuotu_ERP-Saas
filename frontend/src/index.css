@@ -1,0 +1,32 @@
+/* 全局样式 */
+
+/* 侧边栏样式 */
+.ant-layout-sider {
+  background: #ffffff !important;
+}
+
+.ant-layout-sider .ant-menu {
+  background: #ffffff !important;
+}
+
+.ant-menu-light {
+  background: #ffffff !important;
+}
+
+.ant-menu-light .ant-menu-item {
+  color: #333;
+}
+
+.ant-menu-light .ant-menu-submenu-title {
+  color: #333;
+}
+
+.ant-menu-light .ant-menu-item:hover,
+.ant-menu-light .ant-menu-submenu-title:hover {
+  color: #000;
+}
+
+.ant-menu-light .ant-menu-item-selected {
+  background-color: rgba(124, 152, 255, 0.1) !important;
+  color: #000 !important;
+}

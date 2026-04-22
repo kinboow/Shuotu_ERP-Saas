@@ -1,0 +1,104 @@
+手工下备货单
+POST
+/open-api/idms/create-order
+全托管
+通过该接口手工下备货单；该接口适用部分全托管、自运营、半托管模式商家；
+
+请求参数（请求头）
+收起
+参数名称	数据类型	是否必须	描述
+Content-Type
+string	是	
+application/json
+x-lt-openKeyId
+string	是	
+访问用户隐私数据时的唯一权限标识 openKeyId
+x-lt-timestamp
+string	是	
+请求时间戳，格式为时间转换为毫秒的值，也就是从1970年1月1日起至今的时间转换为毫秒，如：1583398764000
+x-lt-signature
+string	是	
+接口签名
+请求参数（请求体）
+收起
+数据类型	是否必须	描述
+paramList
+object[]	是	
+下单参数
+
+skc
+string	是	
+shein skc 编码
+
+skuCodeList
+object[]	是	
+sku下单参数
+
+skuCode
+string	是	
+shein sku 编码
+
+orderCount
+integer	是	
+下单数量
+
+返回参数（响应体）
+收起
+参数名称	数据类型	是否必须	描述
+code
+string	是	
+成功：0
+
+msg
+string	是	
+成功：OK
+
+请求返回示例
+收起
+请求示例
+复制
+curl --location --request POST 'https://openapi.sheincorp.cn/open-api/idms/create-order' \
+--header 'x-lt-signature: test' \
+--header 'x-lt-openKeyId: test' \
+--header 'Content-Type: application/json;charset=UTF-8' \
+--header 'x-lt-timestamp: 1752156234723' \
+--data-raw '{
+  "paramList":[
+      {"skc":"ss25042044640264012",
+      "skuCodeList":[
+          {
+          "skuCode":"I5cmbaujgtlf",
+          "orderCount":"100"
+      }
+      ]
+      }
+  ]
+}'
+
+
+返回示例
+复制
+{
+    "code": "04905",
+    "msg": "ss25042044640264012商品层次非备货款，不允许下单",
+    "info": null,
+    "bbl": null,
+    "error": null,
+    "traceId": "b4f652db618c2cd6"
+}
+
+
+业务返回错误信息
+收起
+语言
+未解决你的问题，你可以通过 提交工单 获得帮助
+错误码	错误信息	解决方案
+No Data
+暂无数据
+限流规则
+收起
+No Data
+暂无数据
+FAQ
+No Data
+暂无数据

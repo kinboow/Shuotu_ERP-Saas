@@ -1,0 +1,155 @@
+version: '3.8'
+
+services:
+  # API网关
+  gateway:
+    build: ./services/gateway
+    ports:
+      - "5000:5000"
+    environment:
+      - NODE_ENV=development
+      - SERVICE_NAME=gateway
+      - REDIS_HOST=redis
+      - MYSQL_HOST=mysql
+      - SYNC_ENGINE_HOST=sync-engine
+      - OMS_HOST=oms
+      - WMS_HOST=wms
+      - PMS_HOST=pms
+      - OSS_HOST=oss
+      - MISC_HOST=misc
+    depends_on:
+      - redis
+      - mysql
+    networks:
+      - erp-network
+
+  # 同步引擎
+  sync-engine:
+    build: ./services/sync-engine
+    ports:
+      - "5001:5001"
+    environment:
+      - NODE_ENV=development
+      - SERVICE_NAME=sync-engine
+      - PORT=5001
+      - REDIS_HOST=redis
+      - MYSQL_HOST=mysql
+    depends_on:
+      - redis
+      - mysql
+    networks:
+      - erp-network
+
+  # 订单服务
+  oms:
+    build: ./services/oms
+    ports:
+      - "5002:5002"
+    environment:
+      - NODE_ENV=development
+      - SERVICE_NAME=oms
+      - PORT=5002
+      - REDIS_HOST=redis
+      - MYSQL_HOST=mysql
+    depends_on:
+      - redis
+      - mysql
+    networks:
+      - erp-network
+
+  # 库存服务
+  wms:
+    build: ./services/wms
+    ports:
+      - "5003:5003"
+    environment:
+      - NODE_ENV=development
+      - SERVICE_NAME=wms
+      - PORT=5003
+      - REDIS_HOST=redis
+      - MYSQL_HOST=mysql
+    depends_on:
+      - redis
+      - mysql
+    networks:
+      - erp-network
+
+  # 商品服务
+  pms:
+    build: ./services/pms
+    ports:
+      - "5004:5004"
+    environment:
+      - NODE_ENV=development
+      - SERVICE_NAME=pms
+      - PORT=5004
+      - REDIS_HOST=redis
+      - MYSQL_HOST=mysql
+    depends_on:
+      - redis
+      - mysql
+    networks:
+      - erp-network
+
+  # 文件存储服务
+  oss:
+    build: ./services/oss
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=development
+      - SERVICE_NAME=oss
+      - PORT=3001
+    volumes:
+      - oss-storage:/app/storage
+    networks:
+      - erp-network
+
+  # 综合服务
+  misc:
+    build: ./services/misc
+    ports:
+      - "5005:5005"
+    environment:
+      - NODE_ENV=development
+      - SERVICE_NAME=misc
+      - PORT=5005
+      - REDIS_HOST=redis
+      - MYSQL_HOST=mysql
+    depends_on:
+      - redis
+      - mysql
+    networks:
+      - erp-network
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - erp-network
+
+  # MySQL
+  mysql:
+    image: mysql:8.0
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=root123
+      - MYSQL_DATABASE=erp
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - erp-network
+
+networks:
+  erp-network:
+    driver: bridge
+
+volumes:
+  redis-data:
+  mysql-data:
+  oss-storage:

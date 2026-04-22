@@ -1,0 +1,150 @@
+商品列表接口
+POST
+/open-api/openapi-business-backend/product/query
+自运营
+全托管
+半托管
+POP
+该API支持查询已发布成功的商品列表数据，接口一次最多返回50000条数据。如果商家发布的商品数量超过50000条，请增加时间范围进行查询。
+
+请求参数（请求头）
+收起
+参数名称	数据类型	是否必须	描述
+Content-Type
+string	是	
+默认值：application/json
+
+x-lt-openKeyId
+string	是	
+访问用户隐私数据时的唯一权限标识 openKeyId
+x-lt-timestamp
+string	是	
+请求时间戳，格式为时间转换为毫秒的值，也就是从1970年1月1日起至今的时间转换为毫秒，如：1583398764000
+x-lt-signature
+string	是	
+接口签名
+
+请求参数（请求体）
+收起
+参数名称	数据类型	是否必须	描述
+pageNum
+integer	否	
+页面数量，默认：1
+
+pageSize
+integer	否	
+页面大小，默认：50
+
+insertTimeEnd
+string	否	
+商品上新的结束时间（商品首次审核通过），示例：2024-11-15 19:00:00
+insertTimeStart
+string	否	
+商品上新的开始时间（商品首次审核通过）示例：2024-11-15 20:00:00
+updateTimeEnd
+string	否	
+商品的更新结束时间（更新范围不仅是商品信息变动，包括系统内部更新时间）.示例：2024-11-15 19:00:00
+updateTimeStart
+string	否	
+商品的更新开始时间（更新范围不仅是商品信息变动，包括系统内部更新时间）.示例：2024-11-15 19:00:00
+返回参数（响应体）
+收起
+数据类型	是否必须	描述
+code
+string	否	
+编码(0:success)
+
+info
+object	否	
+data
+object[]	否	
+skcName
+string	否	
+skcName，skcName是SHEIN生成的系统编码
+
+skuCodeList
+string[]	否	
+sku维度数据，一个skc下最多40个sku；skuCode，skuCode是SHEIN生成的系统编码
+
+spuName
+string	否	
+spuName，spuName是SHEIN生成的系统编码
+
+msg
+string	否	
+错误信息
+
+traceId
+string	否	
+请求的唯一标识；用于异常报错跟踪
+
+请求返回示例
+收起
+请求示例
+复制
+
+
+curl --location --request POST 'https://openapi-test01.sheincorp.cn/open-api/openapi-business-backend/product/query' \
+--header 'language: zh-cn' \
+--header 'x-lt-openKeyId: test' \
+--header 'x-lt-signature: test' \
+--header 'x-lt-timestamp: 1752724525405' \
+--header 'Content-Type: application/json' \
+--header 'Host: openapi-test01.sheincorp.cn' \
+--data-raw '{
+    "pageNum": 1, "pageSize": 50
+}'
+
+
+返回示例
+复制
+{
+    "code": "0",
+    "msg": "OK",
+    "info": {
+        "data": [
+            {
+                "skcName": "sM22040955900525",
+                "skuCodeList": [
+                    "I065lggbkwpe",
+                    "I065lggbejle",
+                    "I065lggb9yr6",
+                    "I065lggbivg3",
+                    "I065lggbg9pt",
+                    "I065lggbclpa",
+                    "I065lggb4uy5"
+                ],
+                "spuName": "M2204095590"
+            },
+            {
+                "skcName": "sM22120115814401",
+                "skuCodeList": [
+                    "I9bqt81qmsv0"
+                ],
+                "spuName": "M2212011581"
+            }
+        ]
+    }
+}
+
+
+业务返回错误信息
+收起
+语言
+错误信息
+错误码
+未解决你的问题，你可以通过 提交工单 获得帮助
+错误码	错误信息	解决方案
+-1	
+page_num不能为空,且需为大于0的整数
+page_num必填
+-1	
+查询总数超过限定值:50000
+减少page_num或page_size的数量
+-1	
+获取商品列表失败
+稍后再试
+共3条数据
+限流规则
+收起
+单个开发者接口限流频次：100次/秒

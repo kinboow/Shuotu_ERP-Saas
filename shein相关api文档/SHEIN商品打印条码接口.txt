@@ -1,0 +1,229 @@
+更新时间：2025-07-31 16:54:20
+商品打印条码
+POST
+/open-api/goods/print-barcode
+全托管
+SHEIN自营
+使用该API打印商品条码
+
+请求参数（请求头）
+收起
+参数名称	数据类型	是否必须	描述
+Content-Type
+string	是	
+默认值：application/json
+
+x-lt-openKeyId
+string	是	
+访问用户隐私数据时的唯一权限标识 openKeyId
+x-lt-timestamp
+string	是	
+请求时间戳，格式为时间转换为毫秒的值，也就是从1970年1月1日起至今的时间转换为毫秒，如：1583398764000
+x-lt-signature
+string	是	
+接口签名
+
+x-lt-language
+string	否	
+指定出参语种，默认中文；支持语种:英语:US 法语:FR 西班牙语:ES 德语:DE 中文简体:CN 泰语:TH 巴西葡语:PT 土耳其语：TR
+请求参数（请求体）
+收起
+数据类型	是否必须	描述
+data
+object[]	是	
+orderNo
+string	是	
+采购单号
+
+supplierSku
+string	否	
+卖家sku编码和sheinSku必填其中一项，推荐使用sheinSku
+
+printNumber
+integer	是	
+数组此字段累计打印份数不能超过2000个；定制急采单的场景使用急采单的下单数入参；
+
+sheinSku
+string	是	
+sheinSku即sku_code，sku_code是商品发布SHEIN生成的系统编码
+
+printContentType
+integer	否	
+指定条码展示内容（默认打印商家货号）；1:商家货号/ 2:商家sku编码
+printFormatType
+integer	否	
+指定条码打印大小（仅巴西商家适用，非巴西商家默认打印20*70）；1:打印20*70/ 2:打印25*40
+返回参数（响应体）
+收起
+数据类型	是否必须	描述
+code
+string	是	
+code=0成功，code =1失败；失败时失败信息在msg字段，如果errorData不为空,说明存在不符合打印的条件, 报错明细需重新核对
+
+msg
+string	是	
+
+
+info
+object	是	
+url
+string	否	
+商品条码的url，如果errorData不为空，则字段为空，打印内容支持指定语种出参；
+
+errorData
+object[]	否	
+错误信息
+
+orderNo
+string	是	
+入参的订单号
+supplierSku
+string	是	
+卖家sku编码
+
+errorMsg
+string[]	是	
+错误提示明细；支持指定语种出参；
+
+printNumber
+integer	是	
+入参的打印份数，此字段累计打印份数不能超过2000个
+
+sheinSku
+string	是	
+sheinSku即sku_code，sku_code是商品发布SHEIN生成的系统编码
+
+codingInfoList
+object[]	否	
+查询成功返回编码信息
+orderNo
+string	是	
+订单号
+supplierSku
+string	否	
+卖家sku编码
+
+sheinSku
+string	是	
+sheinSku即sku_code，sku_code是商品发布SHEIN生成的系统编码
+
+barcode
+string	否	
+barcode条码；定制商品无需关注
+customCodingList
+object[]	否	
+定制商品二维码编码值
+traceId
+string	否	
+请求的唯一标识；用于异常报错跟踪
+
+请求返回示例
+收起
+请求示例
+复制
+
+
+curl --location --request POST 'https://openapi-test01.sheincorp.cn/open-api/goods/print-barcode' \
+--header 'language: zh-cn' \
+--header 'x-lt-openKeyId: test' \
+--header 'x-lt-signature: test' \
+--header 'x-lt-timestamp: 1752733538805' \
+--header 'Content-Type: application/json' \
+--header 'Host: openapi-test01.sheincorp.cn' \
+--data-raw '{
+    "type": 2,
+    "data": [
+        {
+            "orderNo": null,
+            "supplierSku": null,
+            "printNumber": 1,
+            "sheinSku": "I94higsnyh7g"
+        }
+    ]
+}'
+
+
+返回示例
+复制
+{
+    "code": "0",
+    "msg": "OK",
+    "info": {
+        "url": "https://html2pdf.oss-cn-shenzhen.aliyuncs.com/pdf2-test/wmd/2024/3/21/1711013716497-32120d0bf83fd7c2e69095e9412e5647.oss.pdf?AWSAccessKeyId=LTAI5tLUgHZGZqEUN2t8bPCR&Expires=1711015516&Signature=d1Y60dws5Qa%2F6lVFtHL8j%2FFRS6E%3D",
+        "errorData": [],
+        "codingInfoList": [
+            {
+                "orderNo": "J231019600453",
+                "supplierSku": "test_0318",
+                "sheinSku": "I9ii6m6za3e7",
+                "customCodingList": [
+                    "#1001172157#1I9ii6m6za3e7oVwnm4M#4284554690725891",
+                    "#1001172157#1I9ii6m6za3e7oVwnm4Q#4284554880772097"
+                ],
+                "barcode": null
+            }
+        ]
+    },
+    "bbl": null
+}
+
+
+业务返回错误信息
+收起
+语言
+未解决你的问题，你可以通过 提交工单 获得帮助
+错误码	错误信息	解决方案
+openapi00006	
+触发限流，请稍候再试
+接口触发限流。针对每个应用，该接口的qps（每秒最大请求数）为15
+0	
+商品未查到,请到商家系统核实打印！
+审核失败的商品无法打印条码，请检查商品是否已审核通过
+pfmp95020	
+定制商品请根据SHEIN要求，按订单打印条码
+定制的商品打印条码时，入参字段”type“字段请入参枚举2“普通订单条码”
+0	
+订单不存在
+orderNo不存在，请检查
+0	
+此订单不包含当前SKU
+采购单不包含当前SKU，请检查
+pfmp90110	
+打印总数量不能超过2000份
+字段“printNumber“不能超过2000
+pfmp90110	
+打印总数量不能超过2000份
+printNumber代表打印数量不能超过2000
+00100001	
+打印总数量不能超过2000份
+printNumber代表打印数量不能超过2000
+pfmp99004	
+最多支持200个
+入参的数组不能超过200组数据
+pfmp99400	
+最少打印数量为1份，不能为空
+printNumber代表打印数量，必须大于1
+000003	
+最少打印数量为1份
+printNumber代表打印数量，必须大于1
+共11条数据
+限流规则
+收起
+单个开发者接口限流频次：15次/秒
+FAQ
+Q：一个订单打一个条码就可以了吗？
+2024-12-24
+A：
+按照sku维度传参打印条码，有多个sku要打多个条码，这样方便批次管理。场景举例：如果某一批采购单的产品出现了质量问题需要退供，如果使用订单条码就可以只退有问题的那个批次的采购单
+Q：为什么打印条码时报错“商品已转款，请到商家系统按订单打印条码”
+2024-12-24
+A：
+此备货单为商品SKU转款前的备货单，建议让去商家后台打印条码
+Q：商家后台的大货条码是什么意思？
+2024-12-24
+A：
+商品条码
+Q：「商品打印条码」条码类型1:商品条码、2:普通订单条码有什么区别？
+2024-12-24
+A：
+平台建议打印 2：普通订单条码，方便做更精细的批次管理

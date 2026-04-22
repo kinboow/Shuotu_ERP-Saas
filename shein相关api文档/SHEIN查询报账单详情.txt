@@ -1,0 +1,187 @@
+更新时间：2025-07-21 11:33:19
+报账单销售款收支明细
+POST
+/open-api/finance/report-sales-detail
+全托管
+POP
+该接口支持全托管模式的商家通过报账单号查询销售款明细数据；报账单号请通过【报账单列表】接口中的reportOrderNo获取；
+
+请求参数（请求头）
+收起
+参数名称	数据类型	是否必须	描述
+Content-Type
+string	是	
+application/json
+x-lt-openKeyId
+string	是	
+访问用户隐私数据时的唯一权限标识 openKeyId
+x-lt-timestamp
+string	是	
+请求时间戳，格式为时间转换为毫秒的值，也就是从1970年1月1日起至今的时间转换为毫秒，如：1583398764000
+x-lt-signature
+string	是	
+接口签名
+x-lt-language
+string	否	
+指定出参语种，默认英文；支持语种:英语:US 法语:FR 西班牙语:ES 德语:DE 中文简体:CN 泰语:TH 巴西葡语:PT 土耳其语：TR
+请求参数（请求体）
+收起
+参数名称	数据类型	是否必须	描述
+query
+string	否	
+下一页数据查询的值
+perPage
+integer	是	
+每页大小，最大200
+reportOrderNo
+string	是	
+报账单号
+返回参数（响应体）
+收起
+数据类型	是否必须	描述
+code
+string	是	
+响应编码 成功：0
+info
+object	否	
+count
+integer	是	
+对账单明细总数
+query
+string	否	
+若该字段有值，代表有下一页数据，用该字段的值去查询下一页数据
+reportSalesDetails
+object[]	否	
+对账单明细信息
+addTime
+datetime	是	
+账单生成时间
+amount
+double	是	
+金额
+bzOrderNo
+string	是	
+业务单号，如客单、客退单等
+companyName
+string	是	
+公司主体
+expenseType
+integer	是	
+明细费用类型；0:商品/ 1:服务；相同的bzOrderNo和skuCode可能在不同的报账单中以不同的费用明细给出；
+goodsCount
+integer	是	
+商品数量
+id
+string	是	
+对账单明细 id
+inAndOut
+integer	是	
+收支类型；1：收入/ 2：支出
+inAndOutName
+string	是	
+收支类型名称；支持指定语种出参；
+
+secondOrderType
+integer	是	
+二级账单类型
+secondOrderTypeName
+string	是	
+二级账单类型名称；支持指定语种出参；
+
+settleCurrencyCode
+string	是	
+结算币种
+skcName
+string	否	
+SKC
+skuCode
+string	否	
+平台SKU
+supplierSku
+string	否	
+供应商sku；若账单生成后商家修改了商品绑定的供应商sku，返回的是修改后的供应商sku；
+
+unitPrice
+double	否	
+单价
+msg
+string	否	
+错误描述,成功：OK
+
+请求返回示例
+收起
+请求示例
+复制
+curl --location --request POST 'https://openapi.sheincorp.com/open-api/finance/report-sales-detail' \
+--header 'x-lt-openKeyId: test' \
+--header 'x-lt-timestamp: 1752818455708' \
+--header 'x-lt-signature: test' \
+--header 'language: zh-cn' \
+--header 'Content-Type: application/json' \
+--header 'Host: openapi.sheincorp.com' \
+--data-raw '{
+ "query": "OS2407093385925633",
+ "perPage": "2",
+ "reportOrderNo":"B2412210147608576"
+}'
+
+
+返回示例
+复制
+{
+ "code": "0",
+ "msg": "OK",
+ "info": {
+ "reportSalesDetails": [
+ {
+ "secondOrderType": 11,
+ "secondOrderTypeName": "Guangzhou offline procurement and warehousing",
+ "inAndOut": 1,
+ "inAndOutName": "income",
+ "bzOrderNo": "666861111112557",
+ "id": "OS2411205174902784",
+ "skcName": "s23030915354544",
+ "skuCode": "I0cknhftflu1",
+ "goodsCount": 4,
+ "settleCurrencyCode": "USD",
+ "amount": 47.28,
+ "companyName": "ROADGET BUSINESS PTE. LTD.",
+ "addTime": "2024-11-20 21:56:03",
+ "unitPrice": 11.82
+ },
+ {
+ "secondOrderType": 11,
+ "secondOrderTypeName": "Guangzhou offline procurement and warehousing",
+ "inAndOut": 1,
+ "inAndOutName": "income",
+ "bzOrderNo": "186243033161908",
+ "id": "OS2412164097933315",
+ "skcName": "s23030915354544",
+ "skuCode": "I0cknhftflu1",
+ "goodsCount": 4,
+ "settleCurrencyCode": "USD",
+ "amount": 47.28,
+ "companyName": "ROADGET BUSINESS PTE. LTD.",
+ "addTime": "2024-12-16 17:22:10",
+ "unitPrice": 11.82
+ }
+ ],
+ "count": 3,
+ "query": null
+ },
+ "bbl": {},
+ "traceId": "270b714cf9d20130"
+}
+
+
+业务返回错误信息
+收起
+语言
+未解决你的问题，你可以通过 提交工单 获得帮助
+错误码	错误信息	解决方案
+94003	
+报账单不存在
+报账单号不存在
+99500	
+系统异常，请稍后重试
+系统异常，请稍后重试

@@ -1,0 +1,35 @@
+店铺授权关系变更通知
+/authorization_change_notice
+自运营
+全托管
+SHEIN自营
+半托管
+POP
+该消息用于通知店铺授权关系变更。消息接入方式可查看文档：webhook说明文档
+消息属性
+收起
+参数名称	数据类型	是否必须	描述
+type
+integer	否	
+1-卖家手动解绑 2-卖家重置秘钥 3-店铺已失效 4-其它
+srmSupplierId
+integer	否	
+供应商id
+message
+string	否	
+变更通知；示例：The shop【22043644】has cancelled the application authorization
+消息示例
+收起
+{
+	"type": 1,
+	"srmSupplierId": 22043644,
+	"message": "The shop【22043644】has cancelled the application authorization"
+}
+
+
+复制
+FAQ
+Q：Webhook消息发送失败了，平台会有重试机制吗？
+2025-10-30
+A：
+如果平台将 Webhook 消息推送到开发者的回调地址后，开发者没有及时响应，会触发失败重推机制：非订单消息： 平台只会重试 1次。订单事件： 平台会重试 2次。重试时间： 第一次重试的时间大约为30分钟至1小时之间。如有进一步问题，请联系开放平台的工单支持进行咨询

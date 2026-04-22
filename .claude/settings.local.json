@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker-compose:*)",
+      "Bash(mysql -e \"SHOW TABLES LIKE '%shein%';\")",
+      "Bash(curl:*)",
+      "Bash(npm install:*)",
+      "Bash(docker exec:*)"
+    ]
+  }
+}

@@ -1,0 +1,65 @@
+商品上下架通知
+/product_shelves_notice
+自运营
+半托管
+POP
+该消息用于通知 ERP 店铺商品的上架和下架，消息接入方式可查看文档：webhook说明文档
+
+消息属性
+收起
+数据类型	是否必须	描述
+skcName
+string	否	
+SNEIN生成的SKC
+updateTime
+long	否	
+上下架更新时间，毫秒级时间戳
+shelfChangeInfos
+object[]	否	
+上下架变更信息
+siteChangeInfos
+object[]	否	
+上下架变更明细
+site
+string	否	
+变更站点
+shelfState
+integer	否	
+上下架状态1:上架;0:下架
+firstShelfTime
+string	否	
+子站首次上架时间
+lastShelfTime
+string	否	
+子站最近上架时间
+recycleState
+string	否	
+回收站状态1:在回收站;0:不在回收站
+
+消息示例
+收起
+{
+    "skcName": "swdress23210526603",
+    "updateTime": 1735564506057,
+    "shelfChangeInfos": [
+        {
+            "siteChangeInfos": [
+                {
+                    "site": "shein-il",
+                    "shelfState": 0,
+                    "firstShelfTime": "1970-01-01 08:00:01",
+                    "lastShelfTime": "2018-08-28 00:00:00",
+                    "recycleState": "1"
+                }
+            ]
+        }
+    ]
+}
+
+
+复制
+FAQ
+Q：Webhook消息发送失败了，平台会有重试机制吗？
+2025-10-30
+A：
+如果平台将 Webhook 消息推送到开发者的回调地址后，开发者没有及时响应，会触发失败重推机制：非订单消息： 平台只会重试 1次。订单事件： 平台会重试 2次。重试时间： 第一次重试的时间大约为30分钟至1小时之间。如有进一步问题，请联系开放平台的工单支持进行咨询

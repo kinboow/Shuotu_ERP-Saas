@@ -1,0 +1,5 @@
+# SSL证书目录
+# 请运行 generate-cert.bat (Windows) 或 generate-cert.sh (Linux/Mac) 生成证书
+# 或者将您的SSL证书文件放在此目录：
+#   - cert.pem: SSL证书
+#   - key.pem: 私钥

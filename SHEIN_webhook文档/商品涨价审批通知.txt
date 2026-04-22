@@ -1,0 +1,61 @@
+商品涨价审批结果通知
+/product_price_audit_status_notice
+自运营
+POP
+该消息用于通知 ERP 商品的涨价结果，消息接入方式可查看文档：webhook说明文档
+
+消息属性
+收起
+参数名称	数据类型	是否必须	描述
+spu_name
+string	否	
+平台生成的SPU；对应发布接口的spu_name
+
+skc_name
+string	否	
+平台生成的SKC；对应发布接口的skc_name
+
+sku_code
+string	否	
+平台生成的SKU；对应发布接口的sku_code
+
+audit_state
+integer	否	
+审核状态（1:通过;2:驳回）
+
+site
+string	否	
+商品销售站点
+
+currency
+string	否	
+商品币种
+
+audit_time
+datetime	否	
+商品审核时间
+
+audit_reason
+string	否	
+商品审核失败的原因。审核通过时不返回数据
+
+消息示例
+收起
+{
+		"spu_name": "",
+		"skc_name": "",
+		"sku_code": "",
+		"audit_state": 2,
+		"site": "shein-br",
+		"currency": "BRL",
+		"audit_time": "2024-02-01 15:00:00",
+		"audit_reason": "Review Failed: Your Sale Price does not meet the qualifications to be recommended by the platform"
+}
+
+
+复制
+FAQ
+Q：Webhook消息发送失败了，平台会有重试机制吗？
+2025-10-30
+A：
+如果平台将 Webhook 消息推送到开发者的回调地址后，开发者没有及时响应，会触发失败重推机制：非订单消息： 平台只会重试 1次。订单事件： 平台会重试 2次。重试时间： 第一次重试的时间大约为30分钟至1小时之间。如有进一步问题，请联系开放平台的工单支持进行咨询

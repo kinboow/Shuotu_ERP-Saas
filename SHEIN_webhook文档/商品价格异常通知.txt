@@ -1,0 +1,77 @@
+商品价格异常通知
+/product_prices_abnormal_notice
+自运营
+POP
+该消息用于通知 ERP 店铺商品的价格异常，消息接入方式可查看文档：webhook说明文档
+
+消息属性
+收起
+数据类型	是否必须	描述
+data
+object	是	
+skuInfos
+object[]	是	
+skcName
+string	是	
+平台生成的SKC；对应发布接口的skc_name
+
+skuCode
+string	是	
+平台生成的SKU；对应发布接口的sku_code
+
+siteList
+string[]	是	
+商品的销售站点；比如["shein-us"]
+
+mutiAbnormalReason
+object[]	是	
+language
+string	是	
+语种
+remark
+string	是	
+异常说明；示例：您的商品SKCXXX当前价格设置为XX，可能存在低价亏损风险，建议登录shein后台，再次核对确认商品价格，避免产生资损
+
+消息示例
+收起
+{
+    "skuInfos": [
+        {
+            "skcName": "ss24082379322280",
+            "skuCode": "I4jgfvj6c361",
+            "siteList": [
+                "shein-br"
+            ],
+            "mutiAbnormalReason": [
+                {
+                    "language": "PT",
+                    "remark": "您的商品ss24082379322280-I4jgfvj6c361当前价格设置为88.00，可能存在低价亏损风险，建议登录shein后台，再次核对确认商品价格，避免产生资损"
+                },
+                {
+                    "language": "TH",
+                    "remark": "您的商品ss24082379322280-I4jgfvj6c361当前价格设置为88.00，可能存在低价亏损风险，建议登录shein后台，再次核对确认商品价格，避免产生资损"
+                },
+                {
+                    "language": "CN",
+                    "remark": "您的商品ss24082379322280-I4jgfvj6c361当前价格设置为88.00，可能存在低价亏损风险，建议登录shein后台，再次核对确认商品价格，避免产生资损"
+                },
+                {
+                    "language": "US",
+                    "remark": "您的商品ss24082379322280-I4jgfvj6c361当前价格设置为88.00，可能存在低价亏损风险，建议登录shein后台，再次核对确认商品价格，避免产生资损"
+                },
+                {
+                    "language": "ES",
+                    "remark": "您的商品ss24082379322280-I4jgfvj6c361当前价格设置为88.00，可能存在低价亏损风险，建议登录shein后台，再次核对确认商品价格，避免产生资损"
+                }
+            ]
+        }
+    ]
+}
+
+
+复制
+FAQ
+Q：Webhook消息发送失败了，平台会有重试机制吗？
+2025-10-30
+A：
+如果平台将 Webhook 消息推送到开发者的回调地址后，开发者没有及时响应，会触发失败重推机制：非订单消息： 平台只会重试 1次。订单事件： 平台会重试 2次。重试时间： 第一次重试的时间大约为30分钟至1小时之间。如有进一步问题，请联系开放平台的工单支持进行咨询

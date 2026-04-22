@@ -1,0 +1,344 @@
+更新时间：2025-11-13 20:09:35
+商品发布字段规范（含默认语种）
+POST
+/open-api/goods/query-publish-fill-in-standard
+自运营
+全托管
+半托管
+每个店铺在各个分类下有不同的商品发布字段填写规范（要求）。建议在调用商品发布接口前，先调用此接口。本接口可查询的要求范围包括：
+
+1、商品标题和商品描述的必填默认语种（default_language）
+
+2、商品发布时是否必传竞品链接和库存证明（reference_product_link和proof_of_stock）
+
+3、商品发布时是否必传样品信息（sample_info）
+
+4、商品发布时是否必传品牌（brand_code）
+
+5、商品发布时是否必传skc标题（skc_title）
+
+6、半托管和全托管的供货价币种（currency）
+
+7、商品是否支持sku和spu维度的图片（picture_config_list）
+
+8、商品发布时是否必传最小备货数量（minimum_stock_quantity）
+
+9、商品是否支持上传详情图（product_detail_picture）
+
+10、商品是否支持在SKU维度传件数（quantity_info)
+
+11、商品是否支持传SKC建议零售价（suggest_price）
+
+12、商品是否支持填写供应商条码（supplier_barcode）
+
+13、商品是否支持填写SKU包装类型（package_type）
+
+请求参数（请求头）
+收起
+参数名称	数据类型	是否必须	描述
+language
+string	是	
+默认返回中文多语言信息，支持语种：英语:en 法语: fr 西班牙语:es 德语:de 中文简体:zh-cn 泰语:th 巴西葡语:pt-br
+
+Content-Type
+string	是	
+默认值：application/json
+
+x-lt-openKeyId
+string	是	
+访问用户隐私数据时的唯一权限标识 openKeyId
+x-lt-timestamp
+string	是	
+请求时间戳，格式为时间转换为毫秒的值，也就是从1970年1月1日起至今的时间转换为毫秒，如：1583398764000
+x-lt-signature
+string	是	
+接口签名
+
+请求参数（请求体）
+收起
+参数名称	数据类型	是否必须	描述
+category_id
+long	否	
+末级分类id。
+
+该入参可用于查询分类是否支持SPU维度图片、是否需要填写样品信息，其它场景不需要传；
+
+spu_name
+string	否	
+SHEIN生成的SKC编码。
+
+该入参仅用于查询某个SPU当前是否正在使用图片新方案，其它场景不需要传；使用场景较少。
+
+返回参数（响应体）
+收起
+数据类型	是否必须	描述
+bbl
+object	否	
+bbl
+info
+object	否	
+*
+object[]	否	
+npid
+string	否	
+code
+string	是	
+result(success: 0)
+
+info
+object	否	
+fill_in_standard_list
+object[]	是	
+商品发布接口中字段的填写规范列表。
+
+每个field_key值会对应发布接口中的一个入参字段，可确认某个入参能否传值、是否必传。
+
+field_key
+string	是	
+规范内容。以下是此接口枚举值 - 对应的发布接口入参字段名
+
+1、reference_product_link - competing_product_link
+
+2、sample_spec - sample_info
+
+3、proof_of_stock - proof_of_stock_list
+
+4、shelf_require - shelf_require
+
+5、brand_code  -brand_code
+
+6、skc_title - skc_title
+
+7、minimum_stock_quantity - minimum_stock_quantity
+
+8、product_detail_picture - site_detail_image_info_list
+
+9、quantity_info - filled_quantity_to_sku和quantity_info
+
+10、suggest_price - suggested_retail_price
+
+11、supplier_barcode -supplier_barcode
+
+12、package_type -package_type
+
+module
+string	是	
+该模块是对应shein后台发品页面的模块，对应以下模块:
+
+1、基本信息
+
+2、供应信息
+
+3、参考信息
+
+4、样品信息
+
+required
+boolean	是	
+field key中内容是否必填。
+
+true-必填，false非必填
+
+show
+boolean	是	
+field key中内容是否可传。
+
+true可传，false不可传（传了反而会报错）。
+
+currency
+string	是	
+商品供货价币种。
+
+半托管和全托管使用，在发布接口的cost_info -> currency 中使用。
+
+default_language
+string	是	
+商家的默认语言。
+
+在发布接口的multi_language_desc_list、multi_language_name_list中使用。默认语种的商品名称必填，
+
+picture_config_list
+object[]	否	
+商品分类下是否支持在SPU维度上传图片
+
+field_key
+string	否	
+配置字段。
+
+此字段使用较为复杂，详细方案请查看API支持上传SPU和SKU维度图片
+
+is_true
+boolean	否	
+枚举：是/否
+
+support_sale_attribute_sort
+boolean	否	
+是否支持次销售属性值排序。主销售属性值默认都支持排序
+
+msg
+string	否	
+错误描述， success: OK
+
+traceId
+string	否	
+请求的唯一标识；用于异常报错跟踪
+
+请求返回示例
+收起
+请求示例
+复制
+curl --location --request POST 'https://openapi-test01.sheincorp.cn/open-api/goods/query-publish-fill-in-standard' \
+--header 'language: zh-cn' \
+--header 'x-lt-openKeyId: test' \
+--header 'x-lt-signature: test' \
+--header 'x-lt-timestamp: 1752733538805' \
+--header 'Content-Type: application/json' \
+--header 'Host: openapi-test01.sheincorp.cn' \
+--data-raw ''
+
+
+返回示例
+复制
+{
+    "code": "0",
+    "msg": "OK",
+    "info": {
+        "fill_in_standard_list": [
+            {
+                "module": "supplier_info",
+                "field_key": "minimum_stock_quantity",
+                "required": false,
+                "show": false
+            },
+            {
+                "module": "reference_info",
+                "field_key": "reference_product_link",
+                "required": false,
+                "show": false
+            },
+            {
+                "module": "reference_info",
+                "field_key": "proof_of_stock",
+                "required": false,
+                "show": false
+            },
+            {
+                "module": "supplier_info",
+                "field_key": "quantity_info",
+                "required": false,
+                "show": false
+            },
+            {
+                "module": "supplier_info",
+                "field_key": "package_type",
+                "required": false,
+                "show": true
+            },
+            {
+                "module": "supplier_info",
+                "field_key": "supplier_barcode",
+                "required": false,
+                "show": true
+            },
+            {
+                "module": "basic_info",
+                "field_key": "skc_title",
+                "required": false,
+                "show": true
+            },
+            {
+                "module": "sales_info",
+                "field_key": "shelf_require",
+                "required": false,
+                "show": false
+            },
+            {
+                "module": "basic_info",
+                "field_key": "brand_code",
+                "required": false,
+                "show": true
+            },
+            {
+                "module": "supplier_info",
+                "field_key": "stop_purchase",
+                "required": false,
+                "show": false
+            },
+            {
+                "module": "supplier_info",
+                "field_key": "mall_state",
+                "required": true,
+                "show": true
+            },
+            {
+                "module": "sales_info",
+                "field_key": "suggest_price",
+                "required": false,
+                "show": false
+            },
+            {
+                "module": "product_detail_pic",
+                "field_key": "product_detail_pic",
+                "required": false,
+                "show": true
+            },
+            {
+                "module": "sample_info",
+                "field_key": "sample_spec",
+                "required": false,
+                "show": false
+            }
+        ],
+        "default_language": "en",
+        "picture_config_list": [
+            {
+                "field_key": "switch_spu_picture",
+                "is_true": false
+            },
+            {
+                "field_key": "spu_image_detail_show",
+                "is_true": true
+            },
+            {
+                "field_key": "spu_image_detail_required",
+                "is_true": false
+            },
+            {
+                "field_key": "spu_image_detail_single",
+                "is_true": true
+            },
+            {
+                "field_key": "spu_image_square_show",
+                "is_true": true
+            },
+            {
+                "field_key": "spu_image_square_required",
+                "is_true": false
+            },
+            {
+                "field_key": "skc_image_detail_show",
+                "is_true": true
+            },
+            {
+                "field_key": "skc_image_detail_required",
+                "is_true": false
+            },
+            {
+                "field_key": "skc_image_detail_single",
+                "is_true": true
+            },
+            {
+                "field_key": "skc_image_square_show",
+                "is_true": true
+            },
+            {
+                "field_key": "skc_image_square_required",
+                "is_true": false
+            }
+        ],
+        "currency": "USD",
+        "support_sale_attribute_sort": false
+    },
+    "bbl": null,
+    "traceId": "d7db6d53b1ecb8d1"
+}

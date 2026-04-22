@@ -1,0 +1,219 @@
+更新时间：2025-10-11 17:08:11
+发货基本信息查询接口
+GET
+/open-api/shipping/basic
+全托管
+SHEIN自营
+POP
+通过该接口获取商家发货地址，发货仓，支持的发货方式，打包方式，车队，自行委托第三方的物流服务商信息；
+
+请求参数（请求头）
+收起
+参数名称	数据类型	是否必须	描述
+Content-Type
+string	是	
+x-lt-openKeyId
+string	是	
+访问用户隐私数据时的唯一权限标识 openKeyId
+x-lt-timestamp
+string	是	
+请求时间戳，格式为时间转换为毫秒的值，也就是从1970年1月1日起至今的时间转换为毫秒，如：1583398764000
+x-lt-signature
+string	是	
+接口签名
+x-lt-language
+string	否	
+指定出参语种，默认中文；支持语种:英语:US 法语:FR 西班牙语:ES 德语:DE 中文简体:CN 泰语:TH 巴西葡语:PT 土耳其语：TR
+请求参数（查询参数）
+收起
+参数名称	数据类型	是否必须	描述
+orderType
+integer	是	
+订单类型 1：急采 2：备货
+addressId
+integer	否	
+不同的发货地址可匹配不同的快递物流 不选择发货地址某些物流公司无法匹配
+返回参数（响应体）
+收起
+数据类型	是否必须	描述
+code
+string	是	
+响应编码 成功：0
+info
+object	否	
+addressList
+object[]	否	
+发货地址
+addressId
+integer	否	
+地址ID
+addressName
+string	否	
+地址名称
+deliveryTypeList
+object[]	否	
+发货方式
+deliveryTypeName
+string	否	
+发货方式名称，支持按指定语种出参
+
+deliveryTypeValue
+integer	否	
+发货方式值
+expressCompanyList
+object[]	否	
+获取商家自行联系的物流服务商信息；SHEIN集成的物流服务商信息请通过物流产品查询接口获取
+
+companyCode
+string	否	
+快递编码
+companyName
+string	否	
+快递公司名称
+isSupport
+boolean	否	
+服务商类型；true:SHEIN集成物流服务商；false：商家自行委托第三方物流服务商；
+
+motorcadeList
+object[]	否	
+车队列表；快递发货商家无需关注
+isSupport
+boolean	否	
+服务商类型；true:SHEIN集成车队；false：商家自行委托第三方车队；
+
+motorcadeId
+string	否	
+车队编码
+motorcadeName
+string	否	
+车队名称
+packageType
+integer	否	
+打包类型 1:包裹 2：箱唛
+supplierWarehouseList
+object[]	否	
+供应商仓库
+supplierWarehouseId
+int64	否	
+供应商仓库id
+warehouseName
+string	否	
+仓库名称
+
+msg
+string	否	
+错误描述,成功：OK
+traceId
+string	否	
+请求的唯一标识；用于异常报错跟踪
+
+请求返回示例
+收起
+请求示例
+复制
+curl --location --request GET 'https://openapi.sheincorp.cn/open-api/shipping/basic?orderType=1' \
+--header 'x-lt-signature: test' \
+--header 'x-lt-openKeyId: test' \
+--header 'Content-Type: application/json;charset=UTF-8' \
+--header 'x-lt-timestamp: 1752570464986' \
+--data-raw ''
+
+
+返回示例
+复制
+{
+    "code": "0",
+    "msg": "OK",
+    "info": {
+        "deliveryTypeList": [
+            {
+                "deliveryTypeName": "快递/物流送货",
+                "deliveryTypeValue": 1
+            },
+            {
+                "deliveryTypeName": "送货上门",
+                "deliveryTypeValue": 2
+            },
+            {
+                "deliveryTypeName": "定点收货",
+                "deliveryTypeValue": 3
+            },
+            {
+                "deliveryTypeName": "新增发货方式",
+                "deliveryTypeValue": 4
+            },
+            {
+                "deliveryTypeName": "上门查货",
+                "deliveryTypeValue": 21
+            },
+            {
+                "deliveryTypeName": "送货上门",
+                "deliveryTypeValue": 10
+            }
+        ],
+        "addressList": [
+            {
+                "addressName": "河南地址",
+                "addressId": 4722
+            },
+            {
+                "addressName": "青羊地址",
+                "addressId": 4721
+            },
+            {
+                "addressName": "宝鸡",
+                "addressId": 4720
+            }
+        ],
+        "supplierWarehouseList": [
+            {
+                "warehouseName": "323432",
+                "supplierWarehouseId": 78377
+            },
+            {
+                "warehouseName": "仓库kkiki",
+                "supplierWarehouseId": 78376
+            },
+            {
+                "warehouseName": "总仓",
+                "supplierWarehouseId": 78359
+            }
+        ],
+        "expressCompanyList": [
+            {
+                "companyName": "提前我认为其他完全放弃",
+                "companyCode": "afasfsag",
+                "isSupport": true
+            },
+            {
+                "companyName": "车门",
+                "companyCode": "chemen",
+                "isSupport": true
+            },
+            {
+                "companyName": "dhl",
+                "companyCode": "dhl",
+                "isSupport": false
+            },
+            {
+                "companyName": "fedex",
+                "companyCode
+
+
+业务返回错误信息
+收起
+语言
+未解决你的问题，你可以通过 提交工单 获得帮助
+错误码	错误信息	解决方案
+pfmp0009	
+发货地址不存在
+入参字段“addressId”发货地址ID 请从发货基本信息接口/open-api/shipping/basic获取
+pfmp99400	
+订单类型不能为空
+查的入参字段orderType必填，填入1或2
+pfmp99400	
+订单类型参数错误
+查的入参字段orderType必填，填入1或2
+pfmp0009	
+未查询到地址信息
+入参字段“addressId”发货地址ID 请从发货基本信息接口/open-api/shipping/basic获取

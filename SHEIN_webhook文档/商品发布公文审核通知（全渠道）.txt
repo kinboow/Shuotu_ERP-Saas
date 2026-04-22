@@ -1,0 +1,53 @@
+商品发布公文审核通知（全渠道）
+/product_document_audit_status_notice_all_channels
+自运营
+全托管
+半托管
+POP
+该消息用于通知店铺内所有商品的发布或更新审核结果（包括通过商家后台以及API发布更新）。请注意：该 webhook 不会通知商品价格和库存的变更
+
+消息属性
+收起
+数据类型	是否必须	描述
+spu_name
+string	否	
+平台的SPU标识
+skc_name
+string	否	
+平台的SKC标识
+sku_list
+object[]	否	
+平台的SKU信息
+sku_code
+string	否	
+平台的SKU标识
+
+document_sn
+string	否	
+商品审核的公文号
+
+version
+string	否	
+调用发品接口时返回的版本号
+
+audit_time
+string	否	
+审核时间
+
+audit_state
+integer	否	
+审核状态(1:待审核;2:审批成功;3:审批失败;4:已撤回)
+
+消息示例
+收起
+{
+	"spu_name": "h23121539315",
+	"skc_name": "sh2312153931579766",
+	"sku_list": [{
+		"sku_code": "I81ynllyzffh"
+	}],
+	"document_sn": "SPMPA420231215003106",
+	"version": "SPMP231215009184753",
+	"audit_time": "2023-12-18 11:46:43",
+	"audit_state": 2
+}

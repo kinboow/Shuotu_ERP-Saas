@@ -1,0 +1,1250 @@
+商品发布/编辑
+POST
+/open-api/goods/product/publishOrEdit
+自运营
+全托管
+半托管
+接口支持场景：新发布商品（SPU）、更新已发布的商品信息、在已发布商品下新增SKC/SKU
+
+各场景的对接指南：不同应用模式、不同场景中此接口的使用方式有较大差异，建议浏览API文档时结合场景的对接方案，了解详细的对接。
+
+- 新发布商品场景：商品发布-自运营、商品发布-半托管、商品发布-全托管
+
+- 更新已发布商品 & 在已发布商品下新增SKC/SKU场景：商品编辑-自运营、商品编辑-半托管、商品编辑-全托管
+
+请求参数（请求头）
+收起
+参数名称	数据类型	是否必须	描述
+Content-Type
+string	是	
+默认值：application/json
+
+x-lt-openKeyId
+string	是	
+访问用户隐私数据时的唯一权限标识 openKeyId
+
+x-lt-timestamp
+string	是	
+请求时间戳，格式为时间转换为毫秒的值，也就是从1970年1月1日起至今的时间转换为毫秒，如：1583398764000
+
+x-lt-signature
+string	是	
+接口签名
+
+language
+string	是	
+支持返回的多语言报错信息，例如：language:en。默认返回中文多语言信息 英语:en 法语: fr 西班牙语:es 德语:de 中文简体:zh-cn 泰语:th 巴西葡语:pt-br
+
+请求参数（请求体）
+收起
+数据类型	是否必须	描述
+brand_code
+string	否	
+店铺可用的品牌code。
+
+部分商家必填，通过【商品发布规范】API确认，当field_key=brand_code & required=true则必填。code必须从通过【店铺查品牌列表】API获取。
+
+编辑商品信息时，如果不传字段代表清空数据。
+
+category_id
+int64	是	
+末级分类id。
+
+通过【店铺查商品末级分类】API获取，last_category=true代表末级分类。
+
+product_type_id
+int64	否	
+商品类型id。
+
+通过【店铺查商品末级分类】API获取。
+
+source_system
+string	否	
+固定OpenAPI
+
+spu_name
+string	否	
+平台生成的SPU唯一编码。
+
+新发布商品/在已发布下新增SKC时不可传，编辑必传。
+
+supplier_code
+string	否	
+商家货号，到主规格粒度，最多200个字符，具体可查看supplier_code FAQ
+
+suit_flag
+string	否	
+是否套装。1-是，0-否。
+
+API暂不支持套装，所以必须传0。不入参时系统默认赋值0。
+
+is_spu_pic
+boolean	否	
+是否使用新版图片方案。true-用新方案，false-用旧方案
+
+不传字段默认给false。新旧方案的传图差异大，请参考商品图片方案了解详细信息。
+
+fill_configuration_info
+object	否	
+商品信息填写规则。
+
+商品发布有较多新的填写规则，接口层兼容新老方案，但需开发者通过此字段告知平台当前使用了新方案还是老方案，从而决策如何进行发布校验。
+
+filled_quantity_to_sku
+boolean	否	
+是否在sku维度填写件数。
+
+不是所有商家所有类目都支持在sku维度传件数，请先查询商品发布规范，若"field_key": "quantity_info"，且"show"="true"，则代表此分类支持SKU填写件数。
+
+不传值默认按false处理，若传true，则必须在sku_list -> quantity_info中传值。更多件数入参示例参考FAQ
+
+fill_configuration_tags
+string[]	否	
+是否在本次入参中填写某些信息。若填写了A信息则在此处填写上A。
+
+目前可输入的枚举值：PACKAGE_TYPE_TO_SKU - 对应SKU维度的包装类型（package_type）
+
+image_info
+object	否	
+SPU图片列表。
+
+仅is_spu_pic=true时可传，请参考商品图片方案了解详细信息。
+
+编辑商品信息时，如果不传字段代表清空数据。
+
+image_group_code
+string	否	
+图片组编码。
+
+新发布商品/在已发布下新增SKC时不可传，编辑必传。通过查询SPU详情获取。
+
+image_info_list
+object[]	否	
+图片列表。
+
+需要提供哪些类型的图片、数量限制、各类型图片的尺寸要求，请参考商品图片方案了解详细信息。
+
+image_item_id
+int64	否	
+由平台生成的图片唯一编码。
+
+新发布商品/在已发布下新增SKC时不可传，编辑时部分情况必传，请参考入参示例
+
+image_sort
+integer	否	
+图片序号。
+
+同个图片组内序号值不可重复。若由传图片type=1，则此图片必须sort=1。
+
+image_type
+integer	否	
+图片类型。1-主图,2-细节图,5-方块图,6-色块图。
+
+需要提供哪些类型的图片、数量限制、各类型图片的尺寸要求，请参考商品图片方案了解详细信息。
+
+image_url
+string	否	
+图片链接。
+
+必须为SHEIN格式的URL，可通过外链转换或本地图片上传获取。
+
+multi_language_desc_list
+object[]	否	
+商品描述列表（支持多语言）
+
+编辑商品信息时，如果不传字段代表清空数据。
+
+language
+string	是	
+语种。
+
+若提供描述则必须提供默认语种，默认语种需通过商品发布规范API获取default_language。
+
+name
+string	是	
+多语言描述，最多5000个字符。请不要输入html内容，不支持emoji和特殊符号（校验正则： .*[\\ud800\\udc00-\\udbff\\udfff\\ud800-\\udfff].*）
+
+
+
+multi_language_name_list
+object[]	是	
+商品名称列表（支持多语言）
+
+language
+string	是	
+语种。
+
+若提供描述则必须提供默认语种，默认语种需通过商品发布规范API获取default_language。
+
+name
+string	是	
+商品名称，最多1000个字符，不支持emoji。
+
+product_attribute_list
+object[]	是	
+商品属性列表。
+
+此列表只能入参attribute_type=3/4的属性。属性使用方式请参考商品属性文档。
+
+编辑商品信息时，如果不传字段代表清空属性。
+
+attribute_extra_value
+string	否	
+属性值（手动输入类型）。
+
+当属性的输入方式attribute_mode=0/4时，需要在此处入参。仅支持输入正整数。
+
+当attribute_type=3，且attribute_mode=4（下拉多选+手动输入）时，同属性ID下多个属性值的手动输入值之和必须=100。例如成分属性，A成分含10，B成分含90。
+
+attribute_id
+int64	是	
+属性ID。
+
+商品属性中仅可入参attribute_type=3/4的属性。
+
+必填商品属性有2类：一是attribute_status=3的属性，通过店铺可用属性确认；二是因选了A属性导致B属性必填的关联属性，通过查询关联属性填写规则确认。
+
+attribute_value_id
+int64	是	
+属性值ID。当属性的输入方式attribute_mode=1/3/4时，需要在此处入参。
+
+当attribute_mode=3（下拉单选）时，代表属性id下只能有1个属性值id；当attribute_mode=1（下拉多选）/4（下拉多选+手动输入）时，代表属性id下可以有N个属性值id，多选时每个属性值需要以单独一组数据形式入参，此字段不支持数组，最多可选属性值个数通过属性的attribute_input_num判断。
+
+site_list
+object[]	否	
+上架站点。
+
+可用模式：自运营、半托管、POP。
+
+新发布商品/在已发布下新增SKC时必须传，编辑时不可传。
+
+main_site
+string	否	
+主站点。
+
+通过[查询店铺可售站点和站点币种]API获取到的字段mainSite的值
+
+sub_site_list
+string[]	否	
+子站点。
+
+商品上新必填，通过【查询店铺可售站点和站点币种】API获取到的字段【siteAbbr】的值
+
+size_attribute_list
+object[]	否	
+尺码属性（尺码表）
+
+尺码属性规则复杂，请参考商品属性文档。
+
+编辑商品信息时，如果不传字段代表清空属性。
+
+attribute_id
+int64	否	
+属性ID。
+
+此字段只能入参attribute_type=2的属性。存在必填的尺码属性，attribute_status=3为必填属性，通过店铺可用属性确认；
+
+attribute_value_id
+int64	否	
+属性值ID。
+
+尺码属性不需要传此值，需要在attribute_extra_value给值。
+
+attribute_extra_value
+string	否	
+属性值（手动输入类型）。
+
+当属性的输入方式attribute_mode=0/4时，需要在此处入参。仅支持输入正整数。
+
+relate_sale_attribute_id
+int64	否	
+关联的销售属性ID。
+
+尺码属性可与销售属性关联，形成尺码表。注意：只能关联sku维度属性。例如尺码：尺码属性：长度，销售属性:尺寸-S，组合后才是完整尺码表。
+
+relate_sale_attribute_value_id
+int64	否	
+关联的销售属性值ID。注意：只能关联sku维度属性。
+
+
+
+relate_sale_attribute_value
+string	否	
+关联的自定义属性值。当SKU的属性值为自定义属性值时，在此处入参，内容需要和SKU属性值保持一致。
+
+使用方式详见文档。
+
+skc_list
+object[]	是	
+skc列表。
+
+一个spu下最多40个skc。
+
+image_info
+object	是	
+SKC图片列表。
+
+新旧图片方案的图片上传要求不同，请参考商品图片方案确认SKC层级图片需要哪些图片类型、数量限制、尺寸要求。
+
+编辑商品信息时，如果不传字段代表清空数据。
+
+image_group_code
+string	否	
+图片组编码。
+
+新发布商品/在已发布下新增SKC时不可传，编辑必传。通过查询SPU详情获取。
+
+image_info_list
+object[]	是	
+图片列表
+
+image_item_id
+long	否	
+由平台生成的图片唯一编码。
+
+新发布商品/在已发布下新增SKC时不可传，编辑时部分情况必传，请参考入参示例
+
+
+
+image_sort
+integer	是	
+图片序号。
+
+同个图片组内序号值不可重复。注意image_type=1的图片sort必须为1。
+
+image_type
+integer	是	
+图片类型。1-主图（最多1张）,2-细节图（最多10张）,5-方块图,6-色块图(色块图单skc非必填，多skc必填)。
+
+需要提供哪些类型的图片、数量限制、各类型图片的尺寸要求，请参考商品图片方案了解详细信息。
+
+image_url
+string	是	
+图片链接。
+
+必须为SHEIN格式的URL，可通过外链转换或本地图片上传获取。
+
+sale_attribute
+object	是	
+SKC销售属性。
+
+新发布商品/在已发布下新增SKC时必传，编辑场景必传但不可修改。一个商品有且只有1个SKC销售属性。
+
+此字段只能入参attribute_type=1 且 attribute_label=1的属性。存在必填的销售属性，attribute_status=3为必填属性，通过店铺可用属性确认；
+
+attribute_id
+int64	是	
+销售属性ID
+
+attribute_value_id
+int64	是	
+销售属性值ID
+
+custom_attribute_value
+string	否	
+自定义属性值。使用方式详见文档。
+
+仅在销售属性ID支持自定义属性值时，才可在此字段内入参，可通过/open-api/goods/get-custom-attribute-permission-config确认。
+
+属性值要求：字符数50以内；支持半角符号，不可输入全角符号；不支持unicode，检验表达式可参考：String emojiPattern = "[\\uD83C-\\uDBFF\\uDC00-\\uDFFF\\u2600-\\u27ff]"
+
+language
+string	否	
+自定义属性值的语种。
+
+支持的语种：en、zh-cn、fr、es、it。如果ERP不传多语言内容，平台会做系统翻译。
+
+skc_name
+string	否	
+平台生成的SKC唯一编码。
+
+新增场景不能传，编辑场景若是更新已发布SKC则必传，若是新增SKC则不用传。
+
+supplier_code
+string	是	
+商家侧SKC维度货号，最多200个字符
+
+skc_title
+string	否	
+skc维度商品标题。
+
+部分商家必填，通过商品发布规范接口确认，"field_key":"skc_title","required":"true"时必填，"show":"false"时不可传。提供默认语种的标题即可。编辑时不传字段代表清空数据。
+
+sku_list
+object[]	是	
+sku列表。
+
+一个skc下最多200个sku。即使SKC下没有SKU也需要给sku列表数据，这种情况sku的销售属性可以给空。
+
+cost_info
+object	否	
+SKU供货价
+
+可用应用模式：半托管、全托管。新发布商品/新增SKCSKU时必传，编辑时不可传。若需要更新已审核通过的SKU供货价，需调用【更新供货价】API修改。
+
+cost_price
+string	否	
+供货价格。最多2位小数点。数字在0-100000之间。
+
+
+
+currency
+string	否	
+币种缩写。
+
+商家可用币种是商品发布规范的【currency】
+
+height
+string	是	
+含包装尺寸：高度（cm）。
+
+支持输入正数，最多2位小数。
+
+length
+string	是	
+含包装尺寸：长度（cm）。
+
+支持输入正数，最多2位小数。
+
+width
+string	是	
+含包装尺寸：宽度（cm）。
+
+支持输入正数，最多2位小数。
+
+weight
+integer	是	
+含包装重量：重量（g）。
+
+支持输入正整数，不可输入0
+
+mall_state
+integer	是	
+sku商城销售状态。
+
+1、在售；2、停售；注意：如果sku设置为停售，不会保存该sku的库存数量，库存数量会在商家后台显示为空
+
+sku_code
+string	否	
+平台生成的SKU唯一编码。
+
+新发布商品/在已发布商品下新增SKI时不可传，编辑已有SKU时必传
+
+stop_purchase
+integer	否	
+采购状态（仅全托管可使用且必填）
+
+1：可采，2：停采
+
+image_info
+object	否	
+SKU图片列表。
+
+25年09月起所有商品在上新时均可上传SKU图片，不再受【仅is_spu_pic=true时可传】限制。非必填，仅支持提供1张图片
+
+编辑商品信息时，如果不传字段代表清空数据。
+
+image_group_code
+string	否	
+图片组编码。
+
+新发布商品/在已发布下新增SKC时不可传，编辑必传。通过查询SPU详情获取。
+
+image_info_list
+object[]	否	
+图片列表。
+
+需要提供哪些类型的图片、数量限制、各类型图片的尺寸要求，请参考商品图片方案了解详细信息。
+
+image_item_id
+int64	否	
+由平台生成的图片唯一编码。
+
+新发布商品/在已发布下新增SKC时不可传，编辑时部分情况必传，请参考入参示例
+
+
+
+image_sort
+integer	否	
+图片序号。
+
+同个图片组内序号值不可重复。若由传图片type=1，则此图片必须sort=1。
+
+image_type
+integer	否	
+图片类型。SKU图仅支持image_type=1。图片要求如下：
+
+● 像素1340px*1785px；或宽高比例1:1，像素范围900px-2200px
+● 格式JPG/JPEG/PNG
+● 大小≤3MB
+
+image_url
+string	否	
+图片链接。
+
+必须为SHEIN格式的URL，可通过外链转换或本地图片上传获取。
+
+supplier_sku
+string	是	
+商家维护的SKU编码。
+
+supplier_sku在店内要求唯一，不可重复。1个supplier_sku只对应1个平台sku，最多200个字符。可通过接口确认输入的值在店铺内是否已存在：/open-api/goods/product/check-supplierSku-repeated
+
+supplier_barcode
+object	否	
+供应商条码。仅部分商家可用，需通过接口确认：/open-api/goods/query-publish-fill-in-standard，响应中的supplier_barcode的show=true代表可填。
+
+非必填，若是更新场景，传null=不更新，传""=清空，传具体值=覆盖更新.
+
+barcode
+string	否	
+商品条码。不论哪种条码类型都仅支持数字，最多32位。
+
+同SKC下的SKU中，条码不可重复。
+
+barcode_type
+string	否	
+条码类型。枚举值：EAN、UPC
+
+competing_product_link
+string	否	
+商品信息参考链接。
+
+部分商家必填，通过商品发布规范接口确认，"field_key":"reference_product_link","required":"true"时必填，"show":"false"时不可传。链接字符长度不超过300。编辑时不穿字段代表清空数据。
+
+price_info_list
+object[]	是	
+售价信息（仅自运营、POP使用）
+
+新发布商品/新增SKCSKU时必传，编辑时不可传。更新已发布SKU价格需通过【更新商品售价】调整。
+
+售价按上架站点维度提供。
+
+base_price
+double	是	
+原价。
+
+仅支持数字，最多2位小数（日元不支持小数）。原价必须大于特价。
+
+currency
+string	是	
+币种缩写。
+
+币种和站点绑定，例如美国站点币种给USD，各站点的币种通过查询站点币种获取。
+
+special_price
+double	否	
+特价。
+
+仅支持数字，最多2位小数（日元不支持小数）。特价必须小于原价。
+
+sub_site
+string	是	
+站点（子站点）。
+
+店铺可上架的站点范围通过查询站点币种获取。此处用site_abbr
+
+sale_attribute_list
+object[]	否	
+SKU销售属性列表。
+
+只能入参attribute_type=1 且 attribute_label=0/1的属性。attribute_status=3为必填属性，需通过店铺可用属性确认；
+
+SKC下无SKU时，销售属性给空；若有SKU，最多有2个属性，且不同SKC下SKU属性数量需相同。新发布商品/新增SKC时必传，编辑场景必传但不可修改。
+
+attribute_id
+int64	否	
+销售属性ID
+
+attribute_value_id
+int64	否	
+销售属性值ID
+
+custom_attribute_value
+string	否	
+自定义属性值。使用方式详见文档。
+
+仅在销售属性ID支持自定义属性值时，才可在此字段内入参，可通过/open-api/goods/get-custom-attribute-permission-config确认。
+
+属性值要求：字符数50以内；支持半角符号，不可输入全角符号；不支持unicode，检验表达式可参考：String emojiPattern = "[\\uD83C-\\uDBFF\\uDC00-\\uDFFF\\u2600-\\u27ff]"
+
+language
+string	否	
+自定义属性值的语种。
+
+支持的语种：en、zh-cn、fr、es、it。如果ERP不传多语言内容，平台会做系统翻译。
+
+stock_info_list
+object[]	是	
+库存信息
+
+新发布商品/新增SKC时必传，编辑场景不可传。更新库存使用修改库存（自运营&半托）、采购商库存更新（全托管）处理。
+
+inventory_num
+integer	是	
+商品总库存数。可以为0，
+
+
+
+supplier_warehouse_id
+string	否	
+商家仓库ID 。
+
+当店铺有多个仓库，则该字段必填，可通过【商家仓库列表查询】API获取
+
+supplier_warehouse_name
+string	否	
+商家仓库名称。
+
+可通过【商家仓库列表查询】API获取。
+
+quantity_info
+object	否	
+sku维度件数信息
+
+此接口入参字段“filled_quantity_to_sku”="true"时，才可以在此字段中传值。更多件数入参示例参考FAQ
+
+quantity_type
+integer	否	
+件数类型。1-单件 2-同品多件。
+
+已审核通过的SKU不可修改件数信息。
+
+quantity_unit
+integer	否	
+件数单位。1-件 2-双
+
+相同SKC下所有的SKU，件数单位必须保持一致。已审核通过的SKU不可修改件数信息。
+
+quantity
+integer	否	
+件数值。
+
+已审核通过的SKU不可修改件数信息。
+
+package_type
+string	否	
+sku维度包装类型。此接口入参字段fill_configuration_tags中填写PACKAGE_TYPE_TO_SKU，则字段必填，可传0-4；
+
+枚举值：0:清空包装 1：软包装+软物，2：软包装+硬物，3：硬包装，4：真空）。
+
+minimum_stock_quantity
+string	否	
+最小备货数量。 仅支持输入整数，范围：[1，1000000]  。
+
+能否传值需通过商品发布规范接口确认，"field_key":"minimum_stock_quantity","required":"true"时必填，"show":"false"时不可传
+
+
+
+suggested_retail_price
+object	否	
+建议零售价。非所有商家可用，能否传值需通过商品发布规范接口确认，"field_key":"suggest_price","required":"true"时必填，"show":"false"时不可传
+
+新发布商品/新增SKC时可传，编辑场景时不能传。
+
+
+
+currency
+string	否	
+币种缩写。
+
+商家可用币种是商品发布规范的【currency】。（目前不支持JPY，可暂用USD代替）
+
+price
+double	否	
+价格。
+
+最多2位小数（日元不支持小数）。
+
+site_detail_image_info_list
+object[]	否	
+站点详情图列表。
+
+图片要求：上传3:4图片，像素大于900px图片，最多可支持10张。
+
+部分商家不可传图，需查询商品发布规范，若"field_key": "product_detail_pic"中的show为false，代表不可传图。
+
+image_group_code
+string	否	
+图片组编码。
+
+新增场景不能传，编辑场景更新已发布SKC时必传（如果审核失败则不需要传）。通过查询SPU详情获取。
+
+site_abbr_list
+string[]	否	
+站点列表
+
+image_info_list
+object[]	否	
+图片信息
+
+image_item_id
+string	否	
+首次新增详情图不用传，已有详情图进行修改要传图片组ID
+
+image_sort
+integer	否	
+排序
+
+image_url
+string	否	
+图片链接
+
+必须为SHEIN格式的URL，可通过外链转换或本地图片上传获取。使用type=7进行转换。
+
+proof_of_stock_list
+object[]	否	
+库存证明。
+
+部分商家必填，需通过商品发布规范接口确认，"field_key":"proof_of_stock","required":"true"时必填，"show":"false"时不可传
+
+支持image、PDF格式文件，大小不超过3M，图片/文件总数不超过1个。
+
+file_name
+string	否	
+文件名
+
+type
+string	否	
+文件类型。
+
+1: Image; 2: PDF
+
+url
+string	否	
+文件链接。
+
+shelf_require
+string	否	
+是否强制到货SHEIN仓才上架。0:否，1:是。
+
+全托管模式必填，其他模式是否必填需通过商品发布规范接口确认，"field_key":"shelf_require","required":"true"时必填，"show":"false"时不可传。
+
+shelf_way
+string	否	
+上架方式。1-自动上架；2-定时上架。
+
+全托管和半托管商家必填。
+
+hope_on_sale_date
+string	否	
+期望上架时间。
+
+当shelf_way=2-定时上架时，hope_on_sale_date必填，否则不填；时间给到时分秒，按北京时间给值，e.g.:2022-03-21 00:00:00。
+
+sale_attribute_sort_list
+object[]	否	
+销售属性排序。
+
+设置消费者商品详情页面上属性值的展示顺序，请调用【商品发布字段规范（含默认语种）】API，根据字段support_sale_attribute_sort判断次销售属性是否支持排序，主销售属性默认都是支持排序；
+
+attribute_id
+int64	是	
+属性名ID
+in_order_attribute_value_id_list
+int64[]	否	
+属性值ID排序列表。
+
+列表内按期望顺序排列，以确保商品详情页面的顺序与传入参数中的属性值顺序一致。
+
+in_order_attribute_value_list
+object[]	否	
+排好序的属性值ID/自定义属性值备注列表。如果属性下有自定义属性值，需用这个字段，属性值用哪个形式就入参下面的哪个字段，按排序输入即可。
+
+使用方式详见文档。
+
+attribute_value_id
+string	否	
+属性值ID
+
+custom_attribute_value
+string	否	
+自定义属性值的内容。入参内容必须和销售属性中填写的属性值一模一样。
+
+sample_info
+object	否	
+样品信息。
+
+能否传值需通过商品发布规范接口确认，"field_key":"sample_spec","required":"true"时必填。当样品信息必填时，最外层的size_attribute_list也需要传。
+
+sample_spec
+object	否	
+样品规格
+main_spec
+object	否	
+样品的主销售属性信息。
+
+attribute_id
+long	否	
+主销售属性id
+attribute_value_id
+long	否	
+主销售属性值id
+attribute_value_name
+string	否	
+主销售属性的自定义属性值
+
+sub_spec_list
+object[]	否	
+样品的次销售属性信息；常见的有size
+
+attribute_id
+string	否	
+次销售属性id
+attribute_value_id
+string	否	
+次销售属性值id
+attribute_value_name
+string	否	
+次销售属性的自定义属性值
+
+sample_judge_type
+integer	否	
+审版类型(2:大货样衣)，固定给2
+reserve_sample_flag
+integer	否	
+是否留样(1:是;2:否)，固定给2
+spot_flag
+integer	否	
+是否现货(1:是;2:否)
+返回参数（响应体）
+收起
+数据类型	是否必须	描述
+bbl
+object	否	
+bbl
+info
+object	否	
+*
+object[]	否	
+code
+string	是	
+Result(success: 0)
+info
+object	否	
+pre_valid_result
+object[]	否	
+校验结果描述
+
+form
+string	否	
+拦截原因所属的模块
+
+messages
+string[]	否	
+校验不通过原因
+
+module
+string	否	
+拦截原因所属的字段
+
+mcc_valid_result
+object[]	否	
+平台治理模块。
+
+message
+string	否	
+message
+type
+integer	否	
+错误原因类型。1:预警;2:拦截
+
+filtered_result
+object[]	否	
+系统基于规则会过滤一些无效数据
+
+scene
+string	否	
+过滤场景
+
+message
+string	否	
+具体信息
+
+spu_name
+string	否	
+发布成功后返回spu_name，后续查询商品或编辑商品时均会使用。
+
+skc_list
+object[]	否	
+skc list
+
+skc_name
+string	否	
+发布成功后返回skc_name
+
+sku_list
+object[]	否	
+sku list
+
+sku_code
+string	否	
+发布成功后返回sku_code
+
+supplier_sku
+string	否	
+supplier sku
+success
+boolean	否	
+校验结果
+
+version
+string	否	
+审核版本号。
+
+对应查询审核状态接口中的入参version。
+
+msg
+string	否	
+Error description, success: OK
+
+traceId
+string	否	
+请求的唯一标识；用于异常报错跟踪
+
+请求返回示例
+收起
+请求示例
+复制
+curl --location --request POST 'https://openapi-test01.sheincorp.cn/open-api/goods/product/publishOrEdit' \
+--header 'language: zh-cn' \
+--header 'x-lt-openKeyId: test' \
+--header 'x-lt-signature: test' \
+--header 'x-lt-timestamp: 1752723623139' \
+--header 'Content-Type: application/json' \
+--header 'Host: openapi-test01.sheincorp.cn' \
+--data-raw '{
+  "category_id": "20039882",
+  "brand_code": "",
+  "multi_language_desc_list": [
+    {
+      "language": "en",
+      "name": "<p>Cool and comfortable for staying active on the go, our SLF Mesh Short are made from soft, lightweight mesh fabric that lets your skin breathe freely. The longer 9-inch leg length has room to cover up quickly if you need to, while wide side pockets make it easy to stash a phone or keys.</p>\n<p>The SLF Mesh Shorts add a fun flair to your wardrobe. Pair them with your favorite hoodie and some sneakers for an effortless look.</p>\n<p><b>Shorts Features</b></p>\n<ul>\n<li>Trendy style</li>\n<li>Lightweight mesh fabric</li>\n<li>Elastic stretch waistline</li>\n<li>Standard fit</li>\n<li>Side pockets</li>\n<li>Model is wearing size medium</li>\n</ul><br><br>Fulfilled by SLEEFS"
+    }
+  ],
+  "multi_language_name_list": [
+    {
+      "language": "en",
+      "name": "Amphibious Camo Shorts - 5\""
+    }
+  ],
+  "site_list": [
+    {
+      "main_site": "shein",
+      "sub_site_list": [
+        "shein-fr"
+      ]
+    }
+  ],
+  "skc_list": [
+    {
+      "shelf_way": "1",
+      "image_info": {
+        "image_info_list": [
+          {
+            "image_sort": 1,
+            "image_type": 1,
+            "image_url": "https://imgdeal-test01.shein.com/images3_pi/2024/12/05/4d/17333665721070007089_square.jpeg"
+          },
+          {
+            "image_sort": 2,
+            "image_type": 2,
+            "image_url": "https://imgdeal-test01.shein.com/images3_pi/2024/12/05/4d/17333665721070007089_square.jpeg"
+          },
+          {
+            "image_sort": 3,
+            "image_type": 5,
+            "image_url": "https://imgdeal-test01.shein.com/images3_pi/2024/12/05/73/17333665751070007089.jpeg"
+          },
+          {
+            "image_sort": 4,
+            "image_type": 6,
+            "image_url": "https://imgdeal-test01.shein.com/images3_pi/2024/12/05/ae/17333665792390132818.jpeg"
+          }
+        ]
+      },
+      "sale_attribute": {
+        "attribute_id": 2147484187,
+        "attribute_value_id": 2147488294
+      },
+      "skc_name": "",
+      "sku_list": [
+        {
+          "mall_state": 1,
+          "sku_code": "",
+          "height": "20",
+          "sale_attribute_list": [
+            {
+              "attribute_id": 2147484186,
+              "attribute_value_id": 19884726
+            }
+          ],
+          "stop_purchase": 1,
+          "supplier_sku": "",
+          "weight": 10,
+          "width": "10",
+          "length": "10"
+        }
+      ],
+      "supplier_code": "54369dd1-68ef-4996-94b5-6486e584a5951"
+    }
+  ],
+  "suggested_retail_price": {
+    "currency": "USD",
+    "price": 20
+  },
+  "suit_flag": 0,
+  "spu_name": ""
+}'
+
+
+返回示例
+复制
+{
+    "code": "0",
+    "msg": "OK",
+    "info": {
+        "success": true,
+        "spu_name": "MM2412222464",
+        "skc_list": [
+            {
+                "skc_name": "sMM24122224647569",
+                "sku_list": [
+                    {
+                        "sku_code": "I7be1tn2tfoo",
+                        "supplier_sku": "sc_eu20241127001ss241113986146541TEST2"
+                    }
+                ]
+            }
+        ],
+        "version": "SPMP241222341208032",
+        "pre_valid_result": null,
+        "mcc_valid_result": null,
+        "extra": {}
+    },
+    "bbl": null,
+    "traceId": "3acb2f3aa7649de9"
+}
+
+错误代码：
+业务返回错误信息
+收起
+语言
+未解决你的问题，你可以通过 提交工单 获得帮助
+错误码	错误信息	解决方案
+-1	
+您的店铺已关闭，无法发送产品！
+店铺可能会因为侵权或者合规问题关店，这种情况我们建议开发者做以下处理：1、调用接口查询店铺的状态：https://open.sheincorp.com/en/documents/apidoc/detail/3000908；2、接口店铺授权信息的webhook，当店铺关店后，平台会通过webhook通知开发者：/authorization_change_notice
+0	
+不在商家仓库
+请检查仓库编码是否正确，是否是该商家的仓库。可通过商家仓库列表接口查询：https://open.sheincorp.com/documents/apidoc/detail/3001301。
+0	
+卖家SKU重复
+每个商品的卖家SKU是唯一的，不能重复（supplier_sku），请ERP提示商家不要重复使用SKU。请注意：报错率太高会影响接口正常使用
+openapi00007	
+Signature error: Request header parameter exception, did not pass the signature verification policy, please check.
+开发者生成的签名不正确，可以参考文档https://open.sheincorp.com/documents/system/passwdrule进行排查，或使用官网提供的签名工具进行验证：https://open.sheincorp.com/documents/system/passwdrule。
+-1	
+剩余可发货产品数量为0，禁止发货
+每个店铺可发布商品的数量有限制，可以通过查询店铺信息接口获取店铺可用商品额度：/open-api/openapi-business-backend/query-store-info
+-1	
+当前品牌的商店未被授权
+每个店铺可用的品牌code不同。店铺可用的品牌code，可通过【店铺查品牌列表】API获取，通过【商品发布字段规范（含默认语种）】API查询是否该字段必填
+openapi00006	
+触发限流，请稍候再试
+接口触发限流。针对每个应用，该接口的qps（每秒最大请求数）为40
+-1	
+产品分类在当前店铺不可售卖
+当前店铺不可售销售这个类目，需要商家在商家后台申请店铺可售类目
+0	
+当前品牌的商店未授权
+使用店铺未授权的品牌，可通过以下接口查询店铺可用品牌：https://open.sheincorp.com/documents/apidoc/detail/3000438-1000001
+0	
+当前产品类别的商店不可用
+每个店铺的可用类目不一致，需要调用接口查询并选择店铺可用的类目。接口地址：https://open.sheincorp.com/documents/apidoc/detail/3000436-1000001
+-1	
+材质：类型下模板属性为必填项
+平台要求指定类目下，某些商品属性必填，开发者可以通过调用店铺可用属性来判断哪些商品属性必填，如需更多信息可查看以下文档：https://open.sheincorp.com/en/documents/system/424039e8-4657-454a-a4cb-781938a42622
+-1	
+是否有可燃性测试报告：类型下模板属性为必填项
+平台要求指定类目下，某些商品属性必填，开发者可以通过调用店铺可用属性来判断哪些商品属性必填，如需更多信息可查看以下文档：https://open.sheincorp.com/en/documents/system/424039e8-4657-454a-a4cb-781938a42622
+-1	
+其他材料：类型下模板属性为必填项
+平台要求指定类目下，某些商品属性必填，开发者可以通过调用店铺可用属性来判断哪些商品属性必填，如需更多信息可查看以下文档：https://open.sheincorp.com/en/documents/system/424039e8-4657-454a-a4cb-781938a42622
+-1	
+产品特性: 类型下模板属性为必填项
+平台要求指定类目下，某些商品属性必填，开发者可以通过调用店铺可用属性来判断哪些商品属性必填，如需更多信息可查看以下文档：https://open.sheincorp.com/en/documents/system/424039e8-4657-454a-a4cb-781938a42622
+-1	
+食品接触材料: 类型下模板属性为必填项
+平台要求指定类目下，某些商品属性必填，开发者可以通过调用店铺可用属性来判断哪些商品属性必填，如需更多信息可查看以下文档：https://open.sheincorp.com/en/documents/system/424039e8-4657-454a-a4cb-781938a42622
+-1	
+数量：类型下模板属性为必填项
+平台要求指定类目下，某些商品属性必填，开发者可以通过调用店铺可用属性来判断哪些商品属性必填，如需更多信息可查看以下文档：https://open.sheincorp.com/en/documents/system/424039e8-4657-454a-a4cb-781938a42622
+-1	
+食品接触材料: 类型下模板属性为必填项
+平台要求指定类目下，某些商品属性必填，开发者可以通过调用店铺可用属性来判断哪些商品属性必填，如需更多信息可查看以下文档：https://open.sheincorp.com/en/documents/system/424039e8-4657-454a-a4cb-781938a42622
+-1	
+场合：类型下模板属性为必填项
+平台要求指定类目下，某些商品属性必填，开发者可以通过调用店铺可用属性来判断哪些商品属性必填，如需更多信息可查看以下文档：https://open.sheincorp.com/en/documents/system/424039e8-4657-454a-a4cb-781938a42622
+-1	
+是否含刀或刀片: 类型下模板属性为必填项
+平台要求指定类目下，某些商品属性必填，开发者可以通过调用店铺可用属性来判断哪些商品属性必填，如需更多信息可查看以下文档：https://open.sheincorp.com/en/documents/system/424039e8-4657-454a-a4cb-781938a42622
+-1	
+包含组件：类型下模板属性为必填项
+平台要求指定类目下，某些商品属性必填，开发者可以通过调用店铺可用属性来判断哪些商品属性必填，如需更多信息可查看以下文档：https://open.sheincorp.com/en/documents/system/424039e8-4657-454a-a4cb-781938a42622
+-1	
+产品型号: 类型下模板属性为必填项
+平台要求指定类目下，某些商品属性必填，开发者可以通过调用店铺可用属性来判断哪些商品属性必填，如需更多信息可查看以下文档：https://open.sheincorp.com/en/documents/system/424039e8-4657-454a-a4cb-781938a42622
+-1	
+是否含水龙头：类型下模板属性为必填项
+平台要求指定类目下，某些商品属性必填，开发者可以通过调用店铺可用属性来判断哪些商品属性必填，如需更多信息可查看以下文档：https://open.sheincorp.com/en/documents/system/424039e8-4657-454a-a4cb-781938a42622
+-1	
+供电: 类型下模板属性为必填项
+平台要求指定类目下，某些商品属性必填，开发者可以通过调用店铺可用属性来判断哪些商品属性必填，如需更多信息可查看以下文档：https://open.sheincorp.com/en/documents/system/424039e8-4657-454a-a4cb-781938a42622
+-1	
+具体样式：类型下模板属性为必填项
+平台要求指定类目下，某些商品属性必填，开发者可以通过调用店铺可用属性来判断哪些商品属性必填，如需更多信息可查看以下文档：https://open.sheincorp.com/en/documents/system/424039e8-4657-454a-a4cb-781938a42622
+-1	
+长度（cm）：类型下模板属性为必填项
+平台要求指定类目下，某些商品属性必填，开发者可以通过调用店铺可用属性来判断哪些商品属性必填，如需更多信息可查看以下文档：https://open.sheincorp.com/en/documents/system/424039e8-4657-454a-a4cb-781938a42622
+-1	
+材质：类型下模板属性为必填项
+平台要求指定类目下，某些商品属性必填，开发者可以通过调用店铺可用属性来判断哪些商品属性必填，如需更多信息可查看以下文档：https://open.sheincorp.com/en/documents/system/424039e8-4657-454a-a4cb-781938a42622
+-1	
+是否为地毯瓷砖：类型下模板属性为必填项
+平台要求指定类目下，某些商品属性必填，开发者可以通过调用店铺可用属性来判断哪些商品属性必填，如需更多信息可查看以下文档：https://open.sheincorp.com/en/documents/system/424039e8-4657-454a-a4cb-781938a42622
+0	
+电源：类型下的模板属性是必填的
+不同店铺不同类目下需要填写的属性规则不一致，比如商品属性是否必填，可以通过店铺可用属性接口判断."attribute_status": 3为属性必填
+-1	
+图块图必须有一个
+每个商品最少传3张图片，商品图片规范可查看文档：https://open.sheincorp.com/documents/faq-detail/4
+-1	
+必须有两幅详细的图纸
+每个商品最少传3张图片，商品图片规范可查看文档：https://open.sheincorp.com/documents/faq-detail/4
+-1	
+必须有两个详细图纸
+每个商品最少传3张图片，商品图片规范可查看文档：https://open.sheincorp.com/documents/faq-detail/4
+-1	
+产品已更新， 【image_group_code】不能为空
+商品已审核通过，如需求修改商品，需要传 【image_group_code】， 【image_group_code】可通过spu商品详情接口获取：/open-api/goods/spu-info
+20003	
+商品已上新，图片组编码不能为空
+审核通过的商品编辑时需要传image_group_code，审核失败的商品不需要传，你可以通过商品详情接口获取image_group_code。接口地址：https://open.sheincorp.com/documents/apidoc/detail/3000551-1000001
+-1	
+原价格格式不正确，须输入非负且不为零的值
+商品价格不能设置负数，0或者包含“，”
+-1	
+分类无法修改，原因是：新类别下的规格属性与原类别不一致，分类修改失败
+由于修改的新类目下的销售属性和原类目不一样，比如新类目下没有size销售属性，但是原类目有size销售属性。因此该商品无法修改类目。建议重新发品
+-1	
+货币不能为空
+商家未设置商品的价格币种
+-1	
+列表网站的销售价格信息不能为空
+商家未设置商品的销售价格
+-1	
+销售价格信息不能为空
+商品销售价格不能为空
+-1	
+SKC传图不允许上传SPU图和SKU图
+该店铺不支持spu维度和sku维度上传图片，开发者需要通过接口判断店铺是否支持该场景，更多信息可查看文档：https://open.sheincorp.com/en/documents/system/4d96fc8f-4913-4211-8630-5d81e7fcc010
+-1	
+无法输入表情符号，请修改
+商品名称和描述无法设置表情符号
+-1	
+不能输入表情符号，请修改
+商品名称或标题中不能包含表情符号。开发者需要在发布商品的表单中，对名称和标题字段进行相关的校验，以确保不允许输入表情符号
+-1	
+在同一SPU下，SKC仍有待审批记录，无法发布
+商品还在审核中，请勿重复发品
+0	
+新产品的销售属性信息不允许被修改
+对于SHEIN平台而言，一旦商品审核通过，商品的销售属性值不允许修改。例如，1件白色-37码的鞋子，商品审核通过后，不允许修改为黑色-37码；但你可以增加 SKU（颜色）或增加 SKU（尺码）。
+-1	
+您的店铺存在大量侵权的问题，限制发品3天，请您在商品列表-发布记录查看因侵权被驳回的商品公文或商家后台查看侵权违规单详情，并采取相应措施确保未来发布的产品不再涉及侵权。
+商品侵权
+-1	
+主销售属性不能为空
+主销售即skc维度的属性和属性值是必填项
+0	
+由于以下原因，分类无法修改：新类别下的规格属性与原类别不一致，分类修改失败
+修改的分类下不支持当前设置的销售属性，比如size，因此，这些商品请不要修改分类。
+20100	
+剩余可发品额度为0，禁止发品
+店铺的每月商品发布额度已用完，如遇到该类问题，请不要再调用发品，以免导致发品接口受限，同时可让商家联系招商确认是否可以提高发品额度
+-1	
+尺寸，当前类别下属性值未启用
+该类目下无法设置尺寸作为销售属性，请通过店铺可用属性检查
+-1	
+[尺寸] 不能用作主规格，请重新选择。
+尺寸不能作为主规格，说明skc不能设置尺寸，只能在sku维度设置尺寸，更多信息可查看：https://open.sheincorp.com/en/documents/system/424039e8-4657-454a-a4cb-781938a42622
+-1	
+仓库 ID 未填写 (SKU：黑色)
+supplier_warehouse_id为商家仓库ID ，一个店铺有多个仓库，则该字段必填，可通过【商家仓库列表查询】API获取：https://open.sheincorp.com/documents/apidoc/detail/3000931
+-1	
+规格【插头/电压】只可勾选对应属性值，不可自定义，请修改规格信息
+【插头/电压】这个属性只能设置平台提供的属性值，无法自定义，更多信息可查看：https://open.sheincorp.com/documents/system/424039e8-4657-454a-a4cb-781938a42622
+-1	
+仅在 SKC 下可以有一个 SKU。
+如果商品只销售一个销售属性（仅销售蓝色的衣服），则不能设置多个 SKU 数组。以商家想要销售蓝色的 X 码和 S 码衣服为例，在 SKC 数组的销售属性中应传递“蓝色”，然后在 SKC 数组里会有两个 SKU 数组：一个 SKU 数组的销售属性设置为 X 码，另一个 SKU 数组的销售属性设置为 S 码。然而，如果商家只销售蓝色衣服，则开发者不应该在 SKU 维度传递多个 SKU 数组。否则，系统将无法识别并会报错
+-1	
+主要销售属性不能为空
+主销售即skc维度的sale_attribute，为商品发布必填项
+0	
+目前，您有很多产品卡片在待处理阶段。请及时处理交易列表
+有需要商家操作的内容，ERP需要引导商家去SHEIN后台操作，比如完成议价单、核价单等
+-1	
+目前您有太多待处理的产品，这会延迟新产品的发布。
+店铺有很多商品处在议价环节中，因此暂时无法更多商品。需要引导商家登录商家后台处理这些商品
+-1	
+颜色，模板在属性类型为attribute_value_id = 1014645下没有任何值
+请检查发品的json，在销售属性中，attribute_value_id传值了，但是attribute_id没有传值
+-1	
+销售属性的数量和每个 SKU 下属性名称必须相同
+常见原因：skc数组下有sku数组，但是没有传的sku属性和属性值
+-1	
+如果当前选定的插头规格确认正确，则[电源]属性必须选择“插头式”或“电源适配器”；如果产品由可充电电池供电且附带电源适配器，则[电源]必须同时选择“电池供电”和“电源适配器”。如果该类别下没有对应的[电源]属性，请更改为带有[强电流类别]注释的类别。
+存在属性关联，当商品设置了【插头】作为销售属性，则商品属性[电源]必须设置正确的属性值
+-1	
+产品名称中存在敏感词：iPhone
+商品和描述存在敏感词，请调整后重新发品
+-1	
+产品描述包含敏感内容：黑色儿童产品
+商品和描述存在敏感词，请调整后重新发品
+-1	
+产品描述中存在敏感词：Bpa Free
+商品和描述存在敏感词，请调整后重新发品
+0	
+产品描述包含敏感内容
+请检查敏感词信息，在商品描述和商品名称中剔除敏感词后重新发品
+-1	
+面积 > 2.16m²: 类型下模板属性为必填项
+平台要求指定类目下，某些商品属性必填，开发者可以通过调用店铺可用属性来判断哪些商品属性必填，如需更多信息可查看以下文档：https://open.sheincorp.com/en/documents/system/424039e8-4657-454a-a4cb-781938a42622
+-1	
+最长边 >1.8m: 类型下模板属性为必填项
+平台要求指定类目下，某些商品属性必填，开发者可以通过调用店铺可用属性来判断哪些商品属性必填，如需更多信息可查看以下文档：https://open.sheincorp.com/en/documents/system/424039e8-4657-454a-a4cb-781938a42622
+-1	
+产品名称中存在敏感词：BPA Free
+商品和描述存在敏感词，请调整后重新发品
+-1	
+产品描述包含敏感内容：环保
+商品和描述存在敏感词，请调整后重新发品
+-1	
+产品描述包含敏感内容：销售
+商品和描述存在敏感词，请调整后重新发品
+-1	
+产品描述包含敏感内容：回收
+商品和描述存在敏感词，请调整后重新发品
+-1	
+产品描述包含敏感内容：食品级
+商品和描述存在敏感词，请调整后重新发品
+-1	
+relate_sale_attribute_id不能为空
+尺码表未关联销售属性，比如商家需要设置腰围=100，则需要设置腰围关联的销售属性，比如M码的衣服，更多信息可查看文档：https://open.sheincorp.com/en/documents/faq-detail/28
+-1	
+元素标题不能为空
+商品标题是必填的，并且要根据店铺默认语种设置商品名称，默认语种可通过商品发布字段规范（含默认语种）API获取；未传默认语种会报错；
+-1	
+此类目不允许上架儿童或婴幼儿产品及带儿童关键词的商品
+平台要求指定类目下，某些商品属性必填，开发者可以通过调用店铺可用属性来判断哪些商品属性必填，如需更多信息可查看以下文档：https://open.sheincorp.com/en/documents/system/424039e8-4657-454a-a4cb-781938a42622

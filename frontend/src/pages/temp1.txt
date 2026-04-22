@@ -1,0 +1,710 @@
+﻿import React, { useState, useEffect } from 'react';
+import { 
+  Table, Tag, Space, Button, Input, Select, message, Card, Statistic, Row, Col, Image,
+  Modal, Form, DatePicker, Drawer, Tabs, Spin, Empty, Tooltip, Badge, Descriptions, Progress,
+  Dropdown, Checkbox
+} from 'antd';
+import { 
+  SearchOutlined, ReloadOutlined, CheckCircleOutlined, ClockCircleOutlined,
+  EditOutlined, DeleteOutlined, EyeOutlined, LinkOutlined, DownloadOutlined,
+  PlusOutlined, FileExcelOutlined, CopyOutlined, PrinterOutlined, DownOutlined,
+  BarcodeOutlined, FilePdfOutlined
+} from '@ant-design/icons';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { stockOrdersAPI } from '../api';
+import JsBarcode from 'jsbarcode';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
+import html2canvas from 'html2canvas';
+import html2pdf from 'html2pdf.js';
+import pdfMake from 'pdfmake/build/pdfmake';
+import pdfFonts from 'pdfmake/build/vfs_fonts';
+
+// 璁剧疆pdfMake瀛椾綋
+pdfMake.vfs = pdfFonts.pdfMake.vfs;
+
+const { Option } = Select;
+
+// 鏍煎紡鍖朓SO鏃堕棿涓烘槗璇绘牸寮?
+const formatTime = (isoTime) => {
+  if (!isoTime) return '-';
+  return isoTime.replace('T', ' ').replace(/\.\d{3}Z$/, '');
+};
+
+// 閲囪喘鍗曠姸鎬佺爜鏄犲皠锛堟牴鎹甋HEIN API鏂囨。锛?
+const STATUS_MAP = {
+  1: '寰呬笅鍗?,
+  2: '宸蹭笅鍗?,
+  3: '鍙戣揣涓?,
+  4: '宸查€佽揣',
+  5: '宸叉敹璐?,
+  6: '宸叉煡楠?,
+  7: '宸查€€璐?,
+  8: '宸插畬鎴?,
+  9: '鏃犺揣涓嬫灦',
+  10: '宸蹭綔搴?,
+  11: '寰呭鏍?,
+  12: '鍒嗗崟涓?,
+  13: '寰呴€€璐?
+};
+
+// 鑾峰彇鐘舵€佹樉绀烘枃鏈紙鏀寔鏁板瓧鍜屼腑鏂囷級
+const getStatusText = (status) => {
+  if (!status) return '寰呭彂璐?;
+  // 濡傛灉鏄暟瀛楋紝杞崲涓轰腑鏂?
+  if (typeof status === 'number' || !isNaN(Number(status))) {
+    return STATUS_MAP[Number(status)] || `鐘舵€?{status}`;
+  }
+  // 濡傛灉宸茬粡鏄腑鏂囷紝鐩存帴杩斿洖
+  return status;
+};
+
+// 鑾峰彇鐘舵€侀鑹?
+const getStatusColor = (status) => {
+  const statusText = getStatusText(status);
+  const colorMap = {
+    '寰呬笅鍗?: 'default',
+    '宸蹭笅鍗?: 'orange',
+    '寰呭彂璐?: 'orange',
+    '鍙戣揣涓?: 'processing',
+    '宸查€佽揣': 'cyan',
+    '宸叉敹璐?: 'blue',
+    '宸叉煡楠?: 'purple',
+    '宸查€€璐?: 'red',
+    '宸插畬鎴?: 'green',
+    '鏃犺揣涓嬫灦': 'default',
+    '宸蹭綔搴?: 'error',
+    '寰呭鏍?: 'warning',
+    '鍒嗗崟涓?: 'geekblue',
+    '寰呴€€璐?: 'volcano'
+  };
+  return colorMap[statusText] || 'default';
+};
+
+function StockOrders() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const [form] = Form.useForm();
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [pagination, setPagination] = useState({ current: 1, pageSize: 20, total: 0 });
+  
+  // 浠嶶RL鍙傛暟鑾峰彇鍒濆鐨刼rder_type锛屽鏋滄病鏈夊垯榛樿涓?鎬ラ噰'
+  const initialOrderType = searchParams.get('order_type') || '鎬ラ噰';
+  
+  const [filters, setFilters] = useState({ 
+    status: '', 
+    order_number: '', 
+    product_code: '', 
+    order_type: initialOrderType, 
+    warehouse_group: '',
+    platform: 'shein', // 骞冲彴绛涢€夛細shein, temu, tiktok
+    shop_id: '', // 搴楅摵绛涢€?
+    start_date: undefined,
+    end_date: undefined
+  });
+  const [stats, setStats] = useState({ total: 0, pending: 0, shipped: 0, received: 0 });
+  const [shopList, setShopList] = useState([]); // 搴楅摵鍒楄〃
+  const [detailDrawerVisible, setDetailDrawerVisible] = useState(false);
+  const [selectedOrder, setSelectedOrder] = useState(null);
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editForm] = Form.useForm();
+  const [jitModalVisible, setJitModalVisible] = useState(false);
+  const [jitLoading, setJitLoading] = useState(false);
+  const [jitRelations, setJitRelations] = useState([]);
+  const [createOrderModalVisible, setCreateOrderModalVisible] = useState(false);
+  const [createOrderForm] = Form.useForm();
+  const [createOrderLoading, setCreateOrderLoading] = useState(false);
+  
+  // 鎵撳嵃鐩稿叧鐘舵€?
+  const [selectedOrders, setSelectedOrders] = useState([]);
+  const [printModalVisible, setPrintModalVisible] = useState(false);
+  const [printType, setPrintType] = useState('');
+  const [printLoading, setPrintLoading] = useState(false);
+  const [barcodePrintData, setBarcodePrintData] = useState([]);
+
+  useEffect(() => {
+    // 妫€鏌ユ槸鍚︽湁浠庡叾浠栭〉闈㈣烦杞繃鏉ョ殑鍙傛暟
+    if (location.state) {
+      const { orderType, orderNumber } = location.state;
+      
+      if (orderType || orderNumber) {
+        // 璁剧疆绛涢€夋潯浠?
+        setFilters(prev => ({
+          ...prev,
+          order_type: orderType || prev.order_type,
+          order_number: orderNumber || ''
+        }));
+        
+        // 娓呴櫎location.state锛岄伩鍏嶅埛鏂版椂閲嶅搴旂敤
+        window.history.replaceState({}, document.title);
+        
+        // 鏄剧ず鎻愮ず
+        if (orderNumber) {
+          message.info(`姝ｅ湪鏌ヨ澶囪揣鍗曞彿: ${orderNumber}`);
+        }
+      }
+    }
+  }, [location]);
+
+  // 澶勭悊閫夐」鍗″垏鎹?
+  const handleTabChange = (orderType) => {
+    setFilters({ ...filters, order_type: orderType });
+    // 鏇存柊URL鍙傛暟
+    const newSearchParams = new URLSearchParams(searchParams);
+    newSearchParams.set('order_type', orderType);
+    navigate(`?${newSearchParams.toString()}`, { replace: true });
+  };
+
+  useEffect(() => {
+    fetchOrders();
+    fetchStats();
+    fetchShopList();
+  }, [pagination.current, pagination.pageSize, filters]);
+
+  // 鑾峰彇搴楅摵鍒楄〃锛堜粠璁㈠崟鏁版嵁涓彁鍙栵級
+  const fetchShopList = async () => {
+    try {
+      const params = { platform: filters.platform };
+      const response = await fetch(`/api/stock-orders/shops?${new URLSearchParams(params)}`);
+      const data = await response.json();
+      if (data.success) {
+        setShopList(data.data || []);
+      }
+    } catch (error) {
+      console.error('鑾峰彇搴楅摵鍒楄〃澶辫触:', error);
+    }
+  };
+
+  const fetchOrders = async () => {
+    setLoading(true);
+    try {
+      const params = {
+        page: pagination.current,
+        limit: pagination.pageSize,
+        ...filters
+      };
+      
+      // 杩囨护鎺夌┖鍊?
+      Object.keys(params).forEach(key => {
+        if (params[key] === '' || params[key] === undefined || params[key] === null) {
+          delete params[key];
+        }
+      });
+      
+      const response = await fetch(`/api/stock-orders?${new URLSearchParams(params)}`);
+      const data = await response.json();
+      
+      if (data.success) {
+        setOrders(data.data);
+        setPagination(prev => ({
+          ...prev,
+          total: data.total
+        }));
+      }
+    } catch (error) {
+      message.error('鑾峰彇澶囪揣璁㈠崟澶辫触: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchStats = async () => {
+    try {
+      const params = { platform: filters.platform };
+      const response = await fetch(`/api/stock-orders/stats?${new URLSearchParams(params)}`);
+      const data = await response.json();
+      if (data.success) {
+        setStats(data.data);
+      }
+    } catch (error) {
+      console.error('鑾峰彇缁熻淇℃伅澶辫触:', error);
+    }
+  };
+
+  const handleTableChange = (newPagination) => {
+    setPagination(newPagination);
+  };
+
+  const handleSearch = () => {
+    setPagination(prev => ({ ...prev, current: 1 }));
+    fetchOrders();
+  };
+
+  const handleViewDetail = (record) => {
+    setSelectedOrder(record);
+    setDetailDrawerVisible(true);
+  };
+
+  const handleEdit = (record) => {
+    setSelectedOrder(record);
+    editForm.setFieldsValue({
+      status: record.status,
+      delivered_quantity: record.delivered_quantity,
+      warehouse_quantity: record.warehouse_quantity,
+      delivery_number: record.delivery_number,
+      actual_warehouse: record.actual_warehouse,
+      remarks: record.remarks
+    });
+    setEditModalVisible(true);
+  };
+
+  const handleEditSubmit = async (values) => {
+    try {
+      const response = await fetch(`/api/stock-orders/${selectedOrder.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(values)
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        message.success('鏇存柊鎴愬姛');
+        setEditModalVisible(false);
+        fetchOrders();
+      } else {
+        message.error(data.message);
+      }
+    } catch (error) {
+      message.error('鏇存柊澶辫触: ' + error.message);
+    }
+  };
+
+  const handleDelete = (record) => {
+    Modal.confirm({
+      title: '鍒犻櫎纭',
+      content: `纭畾瑕佸垹闄よ鍗?${record.order_number} 鍚楋紵`,
+      okText: '纭畾',
+      cancelText: '鍙栨秷',
+      onOk: async () => {
+        try {
+          const response = await fetch(`/api/stock-orders/${record.id}`, {
+            method: 'DELETE'
+          });
+
+          const data = await response.json();
+          if (data.success) {
+            message.success('鍒犻櫎鎴愬姛');
+            fetchOrders();
+          } else {
+            message.error(data.message);
+          }
+        } catch (error) {
+          message.error('鍒犻櫎澶辫触: ' + error.message);
+        }
+      }
+    });
+  };
+
+  const handleQueryJitRelations = async (record) => {
+    setJitLoading(true);
+    try {
+      const response = await fetch('/api/stock-orders/jit-relations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          shopId: 1,
+          orderNos: record.order_number,
+          selectJitMother: 1
+        })
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        setJitRelations(data.data);
+        setJitModalVisible(true);
+      } else {
+        message.error(data.message);
+      }
+    } catch (error) {
+      message.error('鏌ヨ澶辫触: ' + error.message);
+    } finally {
+      setJitLoading(false);
+    }
+  };
+
+  const handleCreateOrder = async (values) => {
+    setCreateOrderLoading(true);
+    try {
+      // 瑙ｆ瀽杈撳叆鐨凷KU鏁版嵁
+      const lines = values.skuData.trim().split('\n');
+      const paramList = [];
+      
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        
+        const parts = line.trim().split(/\s+/);
+        if (parts.length < 3) {
+          message.error(`鏍煎紡閿欒: ${line}`);
+          setCreateOrderLoading(false);
+          return;
+        }
+        
+        const skc = parts[0];
+        const skuCode = parts[1];
+        const orderCount = parseInt(parts[2]);
+        
+        if (isNaN(orderCount) || orderCount <= 0) {
+          message.error(`鏁伴噺閿欒: ${line}`);
+          setCreateOrderLoading(false);
+          return;
+        }
+        
+        // 鏌ユ壘鏄惁宸叉湁璇KC
+        let skcItem = paramList.find(item => item.skc === skc);
+        if (!skcItem) {
+          skcItem = {
+            skc: skc,
+            skuCodeList: []
+          };
+          paramList.push(skcItem);
+        }
+        
+        // 娣诲姞SKU
+        skcItem.skuCodeList.push({
+          skuCode: skuCode,
+          orderCount: orderCount
+        });
+      }
+      
+      if (paramList.length === 0) {
+        message.error('璇疯緭鍏ユ湁鏁堢殑SKU鏁版嵁');
+        setCreateOrderLoading(false);
+        return;
+      }
+      
+      console.log('鍒涘缓澶囪揣鍗曞弬鏁?', paramList);
+      
+      const response = await fetch('/api/create-stock-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          shopId: 1, // 闇€瑕佷粠涓婁笅鏂囪幏鍙?
+          paramList: paramList
+        })
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        message.success('澶囪揣鍗曞垱寤烘垚鍔燂紒');
+        setCreateOrderModalVisible(false);
+        createOrderForm.resetFields();
+        // 鍒锋柊鍒楄〃
+        setTimeout(() => {
+          fetchOrders();
+        }, 2000);
+      } else {
+        message.error(data.message || '鍒涘缓澶辫触');
+      }
+    } catch (error) {
+      message.error('鍒涘缓澶辫触: ' + error.message);
+    } finally {
+      setCreateOrderLoading(false);
+    }
+  };
+
+  // 澶勭悊鎵撳嵃鑿滃崟鐐瑰嚮
+  const handlePrintMenuClick = async (type) => {
+    if (selectedOrders.length === 0) {
+      message.warning('璇峰厛閫夋嫨瑕佹墦鍗扮殑璁㈠崟');
+      return;
+    }
+    
+    setPrintType(type);
+    
+    if (type === 'barcode') {
+      // 鎵撳嵃鏉＄爜
+      await prepareBarcodeData();
+      setPrintModalVisible(true);
+    } else if (type === 'pickList') {
+      // 鎵撳嵃鎷ｈ揣鍗?
+      await generatePickListPDF();
+    } else if (type === 'washLabel') {
+      message.info('鎵撳嵃娲楁按鏍囧姛鑳藉紑鍙戜腑...');
+    } else if (type === 'complianceLabel') {
+      message.info('鎵撳嵃鍚堣鏍囷紙鐜繚鏍囷級鍔熻兘寮€鍙戜腑...');
+    } else if (type === 'pdaBarcode') {
+      message.info('PDA鎵撳嵃鏉＄爜鍔熻兘寮€鍙戜腑...');
+    } else if (type === 'waybill') {
+      message.info('鎵撳嵃闈㈠崟鍔熻兘寮€鍙戜腑...');
+    } else if (type === 'craftSheet') {
+      message.info('鎵撳嵃宸ヨ壓鍗曞姛鑳藉紑鍙戜腑...');
+    }
+  };
+
+  // 鐢熸垚鎷ｈ揣鍗昉DF锛堜娇鐢╬dfmake锛屾枃鏈彲閫夋嫨锛?
+  const generatePickListPDF = async () => {
+    setPrintLoading(true);
+    message.loading('姝ｅ湪鐢熸垚鎷ｈ揣鍗昉DF...', 0);
+    
+    try {
+      // 鏀堕泦鎵€鏈塖KU鏁版嵁锛屾寜璁㈠崟+SKC鍒嗙粍
+      const groupedItems = new Map();
+      
+      selectedOrders.forEach(order => {
+        if (order.items && order.items.length > 0) {
+          order.items.forEach(item => {
+            const skc = item.skc || '';
+            const groupKey = `${order.order_number}_${skc}`;
+            
+            if (!groupedItems.has(groupKey)) {
+              groupedItems.set(groupKey, {
+                orderNumber: order.order_number,
+                skc: skc,
+                supplierCode: item.supplier_code || '',
+                productImage: item.product_image || item.sku_image || '',
+                addTime: order.add_time || order.allocate_time || '',
+                requestDeliveryTime: order.request_delivery_time || '',
+                skuList: []
+              });
+            }
+            
+            groupedItems.get(groupKey).skuList.push({
+              skuAttribute: item.sku_attribute || '',
+              skuCode: item.sku_code || '',
+              supplierCode: item.supplier_code || '',
+              orderQuantity: item.order_quantity || 0
+            });
+          });
+        }
+      });
+      
+      const pickItems = Array.from(groupedItems.values());
+      
+      if (pickItems.length === 0) {
+        message.destroy();
+        message.warning('娌℃湁鍙墦鍗扮殑鎷ｈ揣鏁版嵁');
+        setPrintLoading(false);
+        return;
+      }
+      
+      // 褰撳墠鎵撳嵃鏃堕棿
+      const printTime = new Date().toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      }).replace(/\//g, '-');
+      
+      // 鏋勫缓琛ㄦ牸鏁版嵁
+      const tableBody = [
+        // 琛ㄥご
+        [
+          { text: '搴忓彿', style: 'tableHeader', alignment: 'center' },
+          { text: '璁㈠崟淇℃伅', style: 'tableHeader', alignment: 'center' },
+          { text: '鍟嗗SKU', style: 'tableHeader', alignment: 'center' },
+          { text: '灞炴€ч泦', style: 'tableHeader', alignment: 'center' },
+          { text: '涓嬪崟鏁伴噺', style: 'tableHeader', alignment: 'center' },
+          { text: '鎷ｈ揣鏁伴噺', style: 'tableHeader', alignment: 'center', fillColor: '#ffff00' }
+        ]
+      ];
+      
+      let itemIndex = 1;
+      for (const item of pickItems) {
+        const addTimeStr = item.addTime ? formatTime(item.addTime).substring(0, 19) : '-';
+        const reqTimeStr = item.requestDeliveryTime ? formatTime(item.requestDeliveryTime).substring(0, 19) : '';
+        const skuCount = item.skuList.length;
+        const totalQuantity = item.skuList.reduce((sum, sku) => sum + sku.orderQuantity, 0);
+        
+        // 璁㈠崟淇℃伅鏂囨湰
+        const orderInfo = [
+          `SKC锛?{item.skc}`,
+          `SKC璐у彿锛?{item.supplierCode}`,
+          `璁㈠崟鍙凤細${item.orderNumber}`,
+          `涓嬪崟鏃堕棿锛?{addTimeStr}`
+        ];
+        if (reqTimeStr) {
+          orderInfo.push(`瑕佹眰鍙栦欢锛?{reqTimeStr}`);
+        }
+        
+        if (skuCount === 1) {
+          // 鍗曚釜SKU
+          tableBody.push([
+            { text: itemIndex.toString(), alignment: 'center' },
+            { text: orderInfo.join('\n'), fontSize: 9 },
+            { text: item.skuList[0].supplierCode || '-', alignment: 'center', fontSize: 10 },
+            { text: item.skuList[0].skuAttribute || '-', alignment: 'center', fontSize: 11 },
+            { text: item.skuList[0].orderQuantity.toString(), alignment: 'center', fontSize: 11, bold: true },
+            { text: '', fillColor: '#ffff00' }
+          ]);
+        } else {
+          // 澶氫釜SKU - 绗竴琛?
+          tableBody.push([
+            { text: itemIndex.toString(), alignment: 'center', rowSpan: skuCount + 1 },
+            { text: orderInfo.join('\n'), fontSize: 9, rowSpan: skuCount + 1 },
+            { text: item.skuList[0].supplierCode || '-', alignment: 'center', fontSize: 10 },
+            { text: item.skuList[0].skuAttribute || '-', alignment: 'center', fontSize: 11 },
+            { text: item.skuList[0].orderQuantity.toString(), alignment: 'center', fontSize: 11, bold: true },
+            { text: '', fillColor: '#ffff00' }
+          ]);
+          
+          // 鍚庣画SKU琛?
+          for (let i = 1; i < skuCount; i++) {
+            const sku = item.skuList[i];
+            tableBody.push([
+              {}, // 搴忓彿宸插悎骞?
+              {}, // 璁㈠崟淇℃伅宸插悎骞?
+              { text: sku.supplierCode || '-', alignment: 'center', fontSize: 10 },
+              { text: sku.skuAttribute || '-', alignment: 'center', fontSize: 11 },
+              { text: sku.orderQuantity.toString(), alignment: 'center', fontSize: 11, bold: true },
+              { text: '', fillColor: '#ffff00' }
+            ]);
+          }
+          
+          // 鍚堣琛?
+          tableBody.push([
+            {}, // 搴忓彿宸插悎骞?
+            {}, // 璁㈠崟淇℃伅宸插悎骞?
+            { text: '鍚堣', alignment: 'center', colSpan: 2, bold: true },
+            {},
+            { text: totalQuantity.toString(), alignment: 'center', fontSize: 11, bold: true },
+            { text: '', fillColor: '#ffff00' }
+          ]);
+        }
+        
+        itemIndex++;
+      }
+      
+      // 瀹氫箟PDF鏂囨。
+      const docDefinition = {
+        pageSize: 'A4',
+        pageMargins: [20, 60, 20, 40],
+        header: {
+          columns: [
+            { text: '鎷ｈ揣鍗?, style: 'header', alignment: 'left', margin: [20, 20, 0, 0] },
+            { text: `鎵撳嵃鏃堕棿锛?{printTime}`, style: 'subheader', alignment: 'right', margin: [0, 25, 20, 0] }
+          ]
+        },
+        content: [
+          {
+            table: {
+              headerRows: 1,
+              widths: [30, '*', 80, 60, 50, 50],
+              body: tableBody
+            },
+            layout: {
+              fillColor: function (rowIndex) {
+                return rowIndex === 0 ? '#f5f5f5' : null;
+              },
+              hLineWidth: function () { return 1; },
+              vLineWidth: function () { return 1; },
+              hLineColor: function () { return '#000000'; },
+              vLineColor: function () { return '#000000'; }
+            }
+          }
+        ],
+        styles: {
+          header: {
+            fontSize: 20,
+            bold: true
+          },
+          subheader: {
+            fontSize: 10,
+            color: '#666666'
+          },
+          tableHeader: {
+            bold: true,
+            fontSize: 10,
+            color: 'black',
+            fillColor: '#f5f5f5'
+          }
+        },
+        defaultStyle: {
+          font: 'Roboto',
+          fontSize: 9
+        }
+      };
+      
+      message.destroy();
+      message.loading('姝ｅ湪鐢熸垚PDF...', 0);
+      
+      // 鐢熸垚PDF
+      const pdfDocGenerator = pdfMake.createPdf(docDefinition);
+      
+      // 鑾峰彇PDF blob
+      pdfDocGenerator.getBlob(async (pdfBlob) => {
+        try {
+          console.log('PDF鐢熸垚鎴愬姛锛屽ぇ灏?', pdfBlob.size);
+          
+          const fileName = `鎷ｈ揣鍗昣${new Date().toISOString().slice(0, 10)}_${Date.now()}.pdf`;
+          
+          // 灏咮lob杞负base64
+          const reader = new FileReader();
+          const base64Data = await new Promise((resolve) => {
+            reader.onloadend = () => {
+              const base64 = reader.result.split(',')[1];
+              resolve(base64);
+            };
+            reader.readAsDataURL(pdfBlob);
+          });
+          
+          // 灏濊瘯涓婁紶鍒癘SS鏈嶅姟
+          let useOss = false;
+          const ossUrl = process.env.REACT_APP_OSS_URL || `http://${window.location.hostname}:3001`;
+          try {
+            const healthCheck = await fetch(`${ossUrl}/health`, { 
+              method: 'GET',
+              signal: AbortSignal.timeout(2000)
+            });
+            useOss = healthCheck.ok;
+          } catch (e) {
+            console.warn('OSS鏈嶅姟涓嶅彲鐢紝浣跨敤鏈湴棰勮');
+            useOss = false;
+          }
+          
+          if (useOss) {
+            const ossResponse = await fetch(`${ossUrl}/upload/buffer`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                buffer: base64Data,
+                fileName: fileName,
+                category: 'pdf',
+                expiresIn: 7200
+              })
+            });
+            
+            if (!ossResponse.ok) {
+              throw new Error(`OSS鏈嶅姟鍝嶅簲閿欒: ${ossResponse.status}`);
+            }
+            
+            const ossResult = await ossResponse.json();
+            
+            if (ossResult.success) {
+              window.open(ossResult.data.signedUrl, '_blank');
+              message.destroy();
+              message.success(`鎷ｈ揣鍗曞凡鐢熸垚锛岄摼鎺ユ湁鏁堟湡鑷?${ossResult.data.expiresAt.replace('T', ' ').slice(0, 19)}`);
+            } else {
+              throw new Error(ossResult.message || 'OSS涓婁紶澶辫触');
+            }
+          } else {
+            const pdfUrl = URL.createObjectURL(pdfBlob);
+            window.open(pdfUrl, '_blank');
+            setTimeout(() => URL.revokeObjectURL(pdfUrl), 2 * 60 * 60 * 1000);
+            message.destroy();
+            message.success('鎷ｈ揣鍗曞凡鐢熸垚锛堟湰鍦伴瑙堟ā寮忥級');
+          }
+          
+          setPrintLoading(false);
+        } catch (error) {
+          message.destroy();
+          message.error('涓婁紶PDF澶辫触: ' + error.message);
+          console.error('涓婁紶PDF澶辫触:', error);
+          setPrintLoading(false);
+        }
+      });
+      
+    } catch (error) {
+      message.destroy();
+      message.error('鐢熸垚鎷ｈ揣鍗曞け璐? ' + error.message);
+      console.error('鐢熸垚鎷ｈ揣鍗曞け璐?', error);
+      setPrintLoading(false);
+    }
+  };
+
+  // 鍑嗗鏉＄爜鎵撳嵃鏁版嵁
+  const prepareBarcodeData = async () => {

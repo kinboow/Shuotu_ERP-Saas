@@ -15,6 +15,44 @@ pdfMake.fonts = {
   }
 };
 
+const HEADER_CATEGORY_MAX_WIDTH = 118;
+const HEADER_CATEGORY_DEFAULT_FONT_SIZE = 9;
+const HEADER_CATEGORY_MIN_FONT_SIZE = 6;
+
+function measureHeaderTextWidth(text, fontSize) {
+  const content = String(text || '');
+  if (!content) {
+    return 0;
+  }
+
+  if (typeof document === 'undefined') {
+    return content.length * fontSize * 0.55;
+  }
+
+  const canvas = measureHeaderTextWidth._canvas || (measureHeaderTextWidth._canvas = document.createElement('canvas'));
+  const context = canvas.getContext('2d');
+  if (!context) {
+    return content.length * fontSize * 0.55;
+  }
+
+  context.font = `bold ${fontSize}px Arial`;
+  return context.measureText(content).width;
+}
+
+function getCategoryHeaderFontSize(text) {
+  const content = String(text || '').trim();
+  if (!content) {
+    return HEADER_CATEGORY_DEFAULT_FONT_SIZE;
+  }
+
+  let fontSize = HEADER_CATEGORY_DEFAULT_FONT_SIZE;
+  while (fontSize > HEADER_CATEGORY_MIN_FONT_SIZE && measureHeaderTextWidth(content, fontSize) > HEADER_CATEGORY_MAX_WIDTH) {
+    fontSize -= 0.5;
+  }
+
+  return Math.max(fontSize, HEADER_CATEGORY_MIN_FONT_SIZE);
+}
+
 function extractSaleAttributeText(attrs) {
   if (!attrs) return '-';
 
@@ -117,6 +155,7 @@ function OnlineProducts() {
 
         const barcodeDataUrl = canvas.toDataURL('image/png');
         const categoryPath = labelMeta.categoryPath || '未获取到分类';
+        const categoryFontSize = getCategoryHeaderFontSize(categoryPath);
         const printQty = parseInt(item.printNumber, 10) || 1;
 
         for (let i = 0; i < printQty; i++) {
@@ -131,9 +170,10 @@ function OnlineProducts() {
                 stack: [
                   {
                     columns: [
-                      { text: categoryPath, fontSize: 9, alignment: 'left', bold: true, width: '*', noWrap: true },
-                      { text: 'Made In China', fontSize: 7, alignment: 'right', bold: true, width: 'auto' }
+                      { text: categoryPath, fontSize: categoryFontSize, alignment: 'left', bold: true, width: '*', noWrap: true },
+                      { text: 'Made In China', fontSize: 7, alignment: 'right', bold: true, width: 'auto', noWrap: true }
                     ],
+                    columnGap: 2,
                     margin: [0, 0, 0, 1]
                   },
                   {

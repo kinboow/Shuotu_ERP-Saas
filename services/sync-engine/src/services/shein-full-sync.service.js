@@ -112,6 +112,54 @@ class SheinFullSyncService {
   }
 
 
+  async _getLatestSuccessfulProductSyncCheckpoint(shopId) {
+    const tasks = await this.sequelize.query(`
+      SELECT task_id, completed_at, result
+      FROM sync_tasks
+      WHERE platform = 'shein_full'
+        AND shop_id = ?
+        AND status = 'completed'
+        AND completed_at IS NOT NULL
+      ORDER BY completed_at DESC
+      LIMIT 50
+    `, {
+      replacements: [shopId],
+      type: QueryTypes.SELECT
+    });
+
+    for (const task of tasks) {
+      const parsedResult = this._safeJsonParse(task.result);
+      const productResult = parsedResult?.products;
+
+      if (!productResult || productResult.success === false) {
+        continue;
+      }
+
+      if (Number(productResult.failCount || 0) > 0) {
+        continue;
+      }
+
+      const checkpointTime = this._parseDateTime(productResult.syncRangeEnd)
+        || this._parseDateTime(productResult.syncRangeEndAt)
+        || (task.completed_at ? new Date(task.completed_at) : null);
+
+      if (!checkpointTime) {
+        continue;
+      }
+
+      return {
+        taskId: task.task_id,
+        checkpointTime,
+        completedAt: task.completed_at ? new Date(task.completed_at) : null,
+        requestedSyncMode: productResult.requestedSyncMode || null,
+        actualSyncMode: productResult.actualSyncMode || null
+      };
+    }
+
+    return null;
+  }
+
+
   /**
    * 检查是否有正在运行的同步任务
    * @param {number} shopId - 店铺ID
@@ -702,10 +750,11 @@ class SheinFullSyncService {
     const productListDelayMs = Number.isNaN(parsedListDelayMs)
       ? 200
       : Math.max(0, parsedListDelayMs);
-    const parsedMinYear = Number.parseInt(params.productMinYear ?? 2013, 10);
-    const productMinYear = Number.isNaN(parsedMinYear)
-      ? 2013
-      : Math.max(2000, Math.min(parsedMinYear, new Date().getFullYear()));
+    const currentYear = new Date().getFullYear();
+    const parsedStartYear = Number.parseInt(params.productStartYear ?? params.productMinYear ?? 2013, 10);
+    const productStartYear = Number.isNaN(parsedStartYear)
+      ? currentYear
+      : Math.max(2000, Math.min(parsedStartYear, currentYear));
     const parsedDelayMs = Number.parseInt(params.productDetailDelayMs ?? 150, 10);
     const productDetailDelayMs = Number.isNaN(parsedDelayMs)
       ? 150
@@ -721,24 +770,45 @@ class SheinFullSyncService {
     let rateLimitRetryCount = 0;
     let rateLimitRecoveredCount = 0;
     let rateLimitFailedCount = 0;
-    const useUpdateTime = params.useUpdateTime === true || params.productTimeField === 'update';
-    const timeFieldLabel = useUpdateTime ? 'updateTime' : 'insertTime';
+    const requestedSyncMode = params.productSyncMode === 'full' ? 'full' : 'incremental';
+    let actualSyncMode = requestedSyncMode;
+    let checkpointInfo = null;
     const parseBoundary = (value) => {
       if (!value) return null;
       const parsed = this._parseDateTime(value);
       return parsed ? new Date(parsed.getTime()) : null;
     };
-    const boundaryStart = useUpdateTime
-      ? parseBoundary(params.updateTimeStart)
-      : parseBoundary(params.insertTimeStart);
+    const explicitUseUpdateTime = params.useUpdateTime === true || params.productTimeField === 'update';
+    let useUpdateTime = requestedSyncMode === 'incremental';
+    let boundaryStart = null;
+
+    if (requestedSyncMode === 'incremental') {
+      checkpointInfo = await this._getLatestSuccessfulProductSyncCheckpoint(shopId);
+      if (checkpointInfo?.checkpointTime) {
+        boundaryStart = new Date(checkpointInfo.checkpointTime.getTime());
+      } else {
+        actualSyncMode = 'full';
+        useUpdateTime = false;
+        boundaryStart = new Date(productStartYear, 0, 1, 0, 0, 0);
+      }
+    } else {
+      useUpdateTime = explicitUseUpdateTime;
+      boundaryStart = useUpdateTime
+        ? parseBoundary(params.updateTimeStart)
+        : parseBoundary(params.insertTimeStart);
+    }
+
     const boundaryEnd = useUpdateTime
       ? parseBoundary(params.updateTimeEnd)
       : parseBoundary(params.insertTimeEnd);
-    const minDate = boundaryStart || new Date(productMinYear, 0, 1, 0, 0, 0);
+    const minDate = boundaryStart || new Date(productStartYear, 0, 1, 0, 0, 0);
+    const timeFieldLabel = useUpdateTime ? 'updateTime' : 'insertTime';
     let endTime = boundaryEnd || new Date();
     if (endTime < minDate) {
       endTime = new Date(minDate.getTime());
     }
+    const syncRangeStart = new Date(minDate.getTime());
+    const syncRangeEnd = new Date(endTime.getTime());
     let emptyIntervalCount = 0;
     const processedSpuNames = new Set();
     const {
@@ -750,6 +820,8 @@ class SheinFullSyncService {
       intervalMonths: _intervalMonths,
       productListDelayMs: _productListDelayMs,
       productMinYear: _productMinYear,
+      productStartYear: _productStartYear,
+      productSyncMode: _productSyncMode,
       useUpdateTime: _useUpdateTime,
       productTimeField: _productTimeField,
       productDetailConcurrency: _productDetailConcurrency,
@@ -769,7 +841,12 @@ class SheinFullSyncService {
     delete productListParams.updateTimeEnd;
 
     console.log(`[商品同步] 详情并发数: ${productDetailConcurrency}, 列表分页: ${productListPageSize}, 列表间隔: ${productListDelayMs}ms, 详情间隔: ${productDetailDelayMs}ms, 429重试: ${productDetailRetryTimes}次/${productDetailRetryDelayMs}ms`);
-    console.log(`[商品同步] 查询模式: ${timeFieldLabel}, 时间窗口: ${productWindowMonths}个月, 开始边界: ${this._formatDateTime(minDate)}, 结束边界: ${this._formatDateTime(endTime)}`);
+    console.log(`[商品同步] 请求模式: ${requestedSyncMode}, 实际模式: ${actualSyncMode}, 查询字段: ${timeFieldLabel}, 时间窗口: ${productWindowMonths}个月, 开始边界: ${this._formatDateTime(minDate)}, 结束边界: ${this._formatDateTime(endTime)}`);
+    if (checkpointInfo?.checkpointTime) {
+      console.log(`[商品同步] 使用增量checkpoint: ${this._formatDateTime(checkpointInfo.checkpointTime)} (任务 ${checkpointInfo.taskId})`);
+    } else if (requestedSyncMode === 'incremental') {
+      console.log(`[商品同步] 未找到增量checkpoint，回退为从 ${productStartYear} 年开始的全量同步`);
+    }
 
     while (true) {
       const startTime = this._subtractMonths(endTime, productWindowMonths);
@@ -827,7 +904,7 @@ class SheinFullSyncService {
 
       if (intervalRowCount === 0) {
         emptyIntervalCount++;
-        console.log(`[商品同步] 本时间段无数据，连续空时间段: ${emptyIntervalCount}/3`);
+        console.log(`[商品同步] 本时间段无数据，连续空时间段: ${emptyIntervalCount}`);
       } else {
         emptyIntervalCount = 0;
       }
@@ -849,13 +926,14 @@ class SheinFullSyncService {
             productDetailRetryDelayMs,
             workerNo
           );
+          const detailInfo = detail?.info || detail?.data || detail;
 
           if (detail.retryCount > 0) {
             rateLimitRetryCount += detail.retryCount;
             rateLimitRecoveredCount++;
           }
 
-          await this.saveProduct(shopId, detail.info);
+          await this.saveProduct(shopId, detailInfo);
           successCount++;
           console.log(`[商品同步][Worker-${workerNo}] ✅ 保存成功: ${spuName} (${successCount + failCount}/${Math.max(totalCount, successCount + failCount)})`);
         } catch (err) {
@@ -879,11 +957,6 @@ class SheinFullSyncService {
         }
       });
 
-      if (emptyIntervalCount >= 3) {
-        console.log(`[商品同步] 连续3个时间段无数据，停止查询`);
-        break;
-      }
-
       if (startTime <= minDate) {
         console.log(`[商品同步] 已查询到起始边界，停止`);
         break;
@@ -906,6 +979,12 @@ class SheinFullSyncService {
       rateLimitRetryCount,
       rateLimitRecoveredCount,
       rateLimitFailedCount,
+      requestedSyncMode,
+      actualSyncMode,
+      checkpointFound: Boolean(checkpointInfo?.checkpointTime),
+      checkpointTime: checkpointInfo?.checkpointTime ? this._formatDateTime(checkpointInfo.checkpointTime) : null,
+      syncRangeStart: this._formatDateTime(syncRangeStart),
+      syncRangeEnd: this._formatDateTime(syncRangeEnd),
       emptyIntervalCount,
       productWindowMonths,
       timeField: timeFieldLabel
@@ -916,13 +995,21 @@ class SheinFullSyncService {
    * 保存商品到数据库
    */
   async saveProduct(shopId, product) {
-    if (!product || !product.spuName) return;
+    if (!product) {
+      throw new Error('商品详情为空，无法保存');
+    }
+
+    const normalizedSpuName = product.spuName || product.spu_name;
+    if (!normalizedSpuName) {
+      const availableKeys = Object.keys(product).slice(0, 20).join(', ');
+      throw new Error(`商品详情缺少spuName，无法保存${availableKeys ? `，详情字段: ${availableKeys}` : ''}`);
+    }
 
     await this._ensureProductBarcodeColumn();
 
     const productData = {
       shop_id: shopId,
-      spu_name: product.spuName,
+      spu_name: normalizedSpuName,
       skc_name: product.skcInfoList?.[0]?.skcName || null,
       category_id: product.categoryId,
       product_type_id: product.productTypeId,
@@ -941,7 +1028,7 @@ class SheinFullSyncService {
 
     const [existing] = await this.sequelize.query(`
       SELECT id FROM shein_full_products WHERE shop_id = ? AND spu_name = ?
-    `, { replacements: [shopId, product.spuName], type: QueryTypes.SELECT });
+    `, { replacements: [shopId, normalizedSpuName], type: QueryTypes.SELECT });
 
     if (existing) {
       const sets = Object.keys(productData).map(k => `${k} = ?`).join(', ');
@@ -1356,6 +1443,16 @@ class SheinFullSyncService {
       // 假设输入的时间字符串是UTC+8时间，直接解析
       const d = new Date(dateStr);
       return isNaN(d.getTime()) ? null : d;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  _safeJsonParse(value) {
+    if (!value) return null;
+    if (typeof value === 'object') return value;
+    try {
+      return JSON.parse(value);
     } catch (e) {
       return null;
     }

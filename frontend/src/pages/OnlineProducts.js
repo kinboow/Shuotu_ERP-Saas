@@ -59,6 +59,7 @@ function OnlineProducts() {
   // 筛选查询相关状态
   const [searchForm] = Form.useForm();
   const [searchKeyword, setSearchKeyword] = useState('');
+  const [selectedShopId, setSelectedShopId] = useState(null);
   const [shelfStatusFilter, setShelfStatusFilter] = useState(null);
   const [mallStateFilter, setMallStateFilter] = useState(null);
   
@@ -74,6 +75,7 @@ function OnlineProducts() {
   const [barcodePrintShopId, setBarcodePrintShopId] = useState(null);
   const [barcodePrintSpuName, setBarcodePrintSpuName] = useState('');
   const [barcodePrintSkcName, setBarcodePrintSkcName] = useState('');
+  const [barcodePrintSource, setBarcodePrintSource] = useState('local');
 
   const generateCustomBarcodePDF = async (rows, labelMetadataMap = {}, officialBarcodesMap = {}) => {
     try {
@@ -87,7 +89,9 @@ function OnlineProducts() {
         const item = rows[itemIndex];
         const canvas = document.createElement('canvas');
         const labelMeta = labelMetadataMap[item.sheinSku] || {};
-        const barcodeContent = officialBarcodesMap[item.sheinSku] || item.selectedBarcode || item.supplierSku || item.sheinSku;
+        const barcodeContent = barcodePrintSource === 'official'
+          ? (officialBarcodesMap[item.sheinSku] || item.selectedBarcode || item.supplierSku || item.sheinSku)
+          : (item.selectedBarcode || item.supplierSku || item.sheinSku);
         const platformSkuText = item.sheinSku || '-';
         const goodsCodeText = labelMeta.supplierCode || item.displayGoodsCode || labelMeta.supplierSku || item.supplierSku || item.supplier_sku || '-';
         const attributeText = labelMeta.attributeValueName || labelMeta.attributeText || item.sizeText || '-';
@@ -278,7 +282,7 @@ function OnlineProducts() {
           barcodeList: Array.isArray(item.barcodeList) ? item.barcodeList : [],
           selectedBarcode: Array.isArray(item.barcodeList) && item.barcodeList.length > 0 ? item.barcodeList[0] : null,
           sizeText: extractSaleAttributeText(localSku.sale_attribute_list),
-          printNumber: 1
+          printNumber: 0
         };
         });
 
@@ -345,6 +349,7 @@ function OnlineProducts() {
       let officialBarcodesMap = {};
       let failedChunks = 0;
       let totalErrorSkuCount = 0;
+      const shouldUseOfficialBarcode = barcodePrintSource === 'official';
 
       const skuCodes = Array.from(new Set(printData.map(item => item.sheinSku).filter(Boolean)));
 
@@ -369,42 +374,44 @@ function OnlineProducts() {
         }
       }
 
-      for (let i = 0; i < printData.length; i += 200) {
-        const chunk = printData.slice(i, i + 200);
-        try {
-          const response = await fetch('/api/shein-full/print-barcode', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              shopId: barcodePrintShopId,
-              data: chunk,
-              type: 2,
-              printFormatType: 1
-            })
-          });
-
-          const result = await response.json();
-          if (!result.success) {
-            failedChunks += 1;
-            console.warn('获取官方条码失败:', result.message || '未知错误');
-            continue;
-          }
-
-          if (Array.isArray(result.codingInfoList)) {
-            result.codingInfoList.forEach(info => {
-              if (info?.sheinSku && info?.barcode) {
-                officialBarcodesMap[info.sheinSku] = info.barcode;
-              }
+      if (shouldUseOfficialBarcode) {
+        for (let i = 0; i < printData.length; i += 200) {
+          const chunk = printData.slice(i, i + 200);
+          try {
+            const response = await fetch('/api/shein-full/print-barcode', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                shopId: barcodePrintShopId,
+                data: chunk,
+                type: 2,
+                printFormatType: 1
+              })
             });
-          }
 
-          if (Array.isArray(result.errorData) && result.errorData.length > 0) {
-            totalErrorSkuCount += result.errorData.length;
-            console.log('打印失败的SKU:', result.errorData);
+            const result = await response.json();
+            if (!result.success) {
+              failedChunks += 1;
+              console.warn('获取官方条码失败:', result.message || '未知错误');
+              continue;
+            }
+
+            if (Array.isArray(result.codingInfoList)) {
+              result.codingInfoList.forEach(info => {
+                if (info?.sheinSku && info?.barcode) {
+                  officialBarcodesMap[info.sheinSku] = info.barcode;
+                }
+              });
+            }
+
+            if (Array.isArray(result.errorData) && result.errorData.length > 0) {
+              totalErrorSkuCount += result.errorData.length;
+              console.log('打印失败的SKU:', result.errorData);
+            }
+          } catch (error) {
+            failedChunks += 1;
+            console.warn('获取官方条码请求失败:', error);
           }
-        } catch (error) {
-          failedChunks += 1;
-          console.warn('获取官方条码请求失败:', error);
         }
       }
 
@@ -414,9 +421,9 @@ function OnlineProducts() {
         officialBarcodesMap
       );
 
-      if (failedChunks > 0) {
+      if (shouldUseOfficialBarcode && failedChunks > 0) {
         message.warning(`部分SKU未获取到官方条码，已自动回退使用本地条码数据（失败批次: ${failedChunks}）`);
-      } else if (totalErrorSkuCount > 0) {
+      } else if (shouldUseOfficialBarcode && totalErrorSkuCount > 0) {
         message.warning(`${totalErrorSkuCount}个SKU未返回官方条码，已自动回退使用本地条码数据`);
       }
 
@@ -434,7 +441,11 @@ function OnlineProducts() {
     try {
       let url = '';
       if (selectedPlatform === 'shein_full') {
-        url = '/api/shein-full-products/local?countOnly=true';
+        const params = new URLSearchParams({ countOnly: 'true' });
+        if (selectedShopId !== null && selectedShopId !== undefined && selectedShopId !== '') {
+          params.append('shop_id', selectedShopId);
+        }
+        url = `/api/shein-full-products/local?${params.toString()}`;
       } else if (selectedPlatform === 'amazon') {
         url = '/api/amazon-products/local?countOnly=true';
       } else if (selectedPlatform === 'ebay') {
@@ -476,6 +487,9 @@ function OnlineProducts() {
       }
       if (mallStateFilter !== null) {
         params.append('mall_state', mallStateFilter);
+      }
+      if (selectedPlatform === 'shein_full' && selectedShopId !== null && selectedShopId !== undefined && selectedShopId !== '') {
+        params.append('shop_id', selectedShopId);
       }
       
       // 根据选中的平台获取商品列表（按SKC分页）
@@ -549,6 +563,7 @@ function OnlineProducts() {
   // 处理筛选查询
   const handleSearch = (values) => {
     setSearchKeyword(values.keyword || '');
+    setSelectedShopId(values.shop_id ?? null);
     setShelfStatusFilter(values.shelf_status);
     setMallStateFilter(values.mall_state);
     setCurrentPage(1); // 重置到第一页
@@ -558,6 +573,7 @@ function OnlineProducts() {
   const handleReset = () => {
     searchForm.resetFields();
     setSearchKeyword('');
+    setSelectedShopId(null);
     setShelfStatusFilter(null);
     setMallStateFilter(null);
     setCurrentPage(1);
@@ -586,7 +602,7 @@ function OnlineProducts() {
   // 筛选条件变化时重新加载
   useEffect(() => {
     fetchProducts();
-  }, [searchKeyword, shelfStatusFilter, mallStateFilter]);
+  }, [searchKeyword, selectedShopId, shelfStatusFilter, mallStateFilter]);
 
   // 查询销量
   const handleQuerySales = async (mode, spuName, skcName) => {
@@ -1193,6 +1209,22 @@ function OnlineProducts() {
               allowClear
             />
           </Form.Item>
+
+          {selectedPlatform === 'shein_full' && (
+            <Form.Item name="shop_id" label="店铺">
+              <Select
+                placeholder="全部店铺"
+                style={{ width: 220 }}
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                options={shops.map(shop => ({
+                  label: shop.shop_name || `店铺 ${shop.id}`,
+                  value: shop.id
+                }))}
+              />
+            </Form.Item>
+          )}
           
           <Form.Item name="shelf_status" label="上架状态">
             <Select
@@ -1709,6 +1741,7 @@ function OnlineProducts() {
         onCancel={() => {
           setBarcodePrintModalVisible(false);
           setBarcodePrintSkcName('');
+          setBarcodePrintSource('local');
         }}
         onOk={handlePrintBarcode}
         confirmLoading={barcodePrintLoading}
@@ -1717,6 +1750,20 @@ function OnlineProducts() {
       >
         <div style={{ marginBottom: '12px', color: '#666' }}>
           将按采购单页面的自定义条码样式生成标签，包含类目、条码/商家SKU、SHEIN SKU、SKC、规格，不显示订单号。
+        </div>
+        <div style={{ marginBottom: '12px' }}>
+          <Space>
+            <span>条码来源：</span>
+            <Select
+              style={{ width: 160 }}
+              value={barcodePrintSource}
+              onChange={setBarcodePrintSource}
+              options={[
+                { label: '本地条码', value: 'local' },
+                { label: '官方条码', value: 'official' }
+              ]}
+            />
+          </Space>
         </div>
         <Table
           size="small"
@@ -1729,21 +1776,6 @@ function OnlineProducts() {
             { title: 'SHEIN SKU', dataIndex: 'sheinSku', key: 'sheinSku', width: 160 },
             { title: '商家SKU', dataIndex: 'supplierSku', key: 'supplierSku', width: 140, render: (v) => v || '-' },
             { title: '规格', dataIndex: 'sizeText', key: 'sizeText', width: 140, render: (v) => v || '-' },
-            {
-              title: 'barcode_list',
-              key: 'barcodeList',
-              width: 240,
-              render: (_, row) => (
-                <Select
-                  style={{ width: '100%' }}
-                  value={row.selectedBarcode}
-                  placeholder="无可用条码"
-                  allowClear
-                  options={(row.barcodeList || []).map(code => ({ label: code, value: code }))}
-                  onChange={(value) => handleBarcodeRowChange(row.id, 'selectedBarcode', value)}
-                />
-              )
-            },
             {
               title: '打印数量',
               key: 'printNumber',

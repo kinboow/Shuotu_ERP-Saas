@@ -49,6 +49,11 @@ import LogisticsAccountManagement from './pages/LogisticsAccountManagement';
 import DataTablePage from './pages/DataTablePage';
 
 const { Header, Content, Sider } = Layout;
+const PRODUCT_SYNC_CURRENT_YEAR = new Date().getFullYear();
+const PRODUCT_SYNC_START_YEAR_OPTIONS = Array.from(
+  { length: PRODUCT_SYNC_CURRENT_YEAR - 1999 },
+  (_, index) => PRODUCT_SYNC_CURRENT_YEAR - index
+);
 
 const syncDataTypeLabels = {
   products: '商品',
@@ -65,6 +70,66 @@ const getProductFailedItems = (syncResults) => (
 );
 
 const getProductFailedCount = (syncResults) => getProductFailedItems(syncResults).length;
+
+const createDefaultProductSyncSettings = () => ({
+  mode: 'incremental',
+  startYear: PRODUCT_SYNC_CURRENT_YEAR
+});
+
+const normalizeProductSyncSettings = (settings = {}) => {
+  const defaults = createDefaultProductSyncSettings();
+  const parsedStartYear = Number.parseInt(settings.startYear, 10);
+  return {
+    mode: settings.mode === 'full' ? 'full' : defaults.mode,
+    startYear: Number.isNaN(parsedStartYear)
+      ? defaults.startYear
+      : Math.max(2000, Math.min(parsedStartYear, PRODUCT_SYNC_CURRENT_YEAR))
+  };
+};
+
+const buildBatchSyncPayload = ({ selectedPlatform, dataTypes, shopId, shopProductSyncSettings }) => {
+  const payload = {
+    platform: selectedPlatform,
+    dataTypes,
+    shopIds: [shopId],
+    pageSize: 50,
+    productLanguageList: ['zh-cn', 'en', 'ko', 'ja'],
+    productDetailConcurrency: 5,
+    productDetailDelayMs: 150,
+    productDetailRetryTimes: 5,
+    productDetailRetryDelayMs: 10000
+  };
+
+  if (Array.isArray(dataTypes) && dataTypes.includes('products')) {
+    const productSettings = normalizeProductSyncSettings(shopProductSyncSettings?.[shopId]);
+    payload.productSyncMode = productSettings.mode;
+    payload.productStartYear = productSettings.startYear;
+    payload.useUpdateTime = productSettings.mode === 'incremental';
+    payload.productTimeField = productSettings.mode === 'incremental' ? 'update' : 'insert';
+  }
+
+  return payload;
+};
+
+const formatSyncDateTime = (value) => {
+  if (!value) {
+    return '暂无';
+  }
+
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  const pad = (num) => String(num).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+};
+
+const getProductSyncModeText = (mode) => {
+  if (mode === 'full') return '全量';
+  if (mode === 'incremental') return '增量';
+  return '暂无';
+};
 
 function SyncStatusSection({ syncing, currentSyncDataType, syncResults, onMinimize }) {
   const resultEntries = syncResults ? Object.entries(syncResults) : [];
@@ -118,9 +183,14 @@ function SyncStatusSection({ syncing, currentSyncDataType, syncResults, onMinimi
                     <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>{summary.join(' ｜ ')}</div>
                   )}
                   {type === 'products' && productResult && (
-                    <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
-                      {`429重试 ${productResult.rateLimitRetryCount || 0} 次 ｜ 恢复 ${productResult.rateLimitRecoveredCount || 0} 个 ｜ 最终失败 ${productResult.rateLimitFailedCount || 0} 个`}
-                    </div>
+                    <>
+                      <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
+                        {`同步模式 ${getProductSyncModeText(productResult.actualSyncMode)} ｜ 查询字段 ${productResult.timeField || '-'} ｜ 区间 ${formatSyncDateTime(productResult.syncRangeStart)} ~ ${formatSyncDateTime(productResult.syncRangeEnd)}`}
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
+                        {`429重试 ${productResult.rateLimitRetryCount || 0} 次 ｜ 恢复 ${productResult.rateLimitRecoveredCount || 0} 个 ｜ 最终失败 ${productResult.rateLimitFailedCount || 0} 个`}
+                      </div>
+                    </>
                   )}
                 </div>
               );
@@ -149,6 +219,53 @@ function SyncStatusSection({ syncing, currentSyncDataType, syncResults, onMinimi
   );
 }
 
+function ProductSyncSettings({ shopId, enabled, syncing, value, onChange, shopMeta }) {
+  if (!enabled) {
+    return null;
+  }
+
+  const settings = normalizeProductSyncSettings(value);
+  const checkpointText = formatSyncDateTime(shopMeta?.last_product_sync_checkpoint_time);
+  const successText = formatSyncDateTime(shopMeta?.last_product_sync_success_at);
+  const lastModeText = getProductSyncModeText(shopMeta?.last_product_sync_mode);
+
+  return (
+    <div style={{ marginBottom: '8px', padding: '10px 12px', background: '#fff', border: '1px solid #f0f0f0', borderRadius: '4px' }}>
+      <div style={{ fontSize: '12px', color: '#666', marginBottom: '8px' }}>商品同步设置：</div>
+      <Space wrap>
+        <Select
+          size="small"
+          value={settings.mode}
+          style={{ width: 120 }}
+          disabled={syncing}
+          onChange={(mode) => onChange(shopId, { ...settings, mode })}
+        >
+          <Option value="incremental">增量同步</Option>
+          <Option value="full">全量同步</Option>
+        </Select>
+        {settings.mode === 'full' && (
+          <Select
+            size="small"
+            value={settings.startYear}
+            style={{ width: 140 }}
+            disabled={syncing}
+            onChange={(startYear) => onChange(shopId, { ...settings, startYear })}
+          >
+            {PRODUCT_SYNC_START_YEAR_OPTIONS.map((year) => (
+              <Option key={year} value={year}>{`${year}年开始`}</Option>
+            ))}
+          </Select>
+        )}
+      </Space>
+      <div style={{ fontSize: '12px', color: '#999', marginTop: '6px' }}>
+        {settings.mode === 'incremental'
+          ? `增量同步仅使用 updateTime，当前增量起点：${checkpointText}；最近成功：${successText}；上次模式：${lastModeText}。若暂无成功记录，会自动回退为全量同步。`
+          : '全量同步会从所选年份开始扫描到当前时间。'}
+      </div>
+    </div>
+  );
+}
+
 // 只有顶部导航栏的布局组件（无侧边栏）
 function HeaderOnlyLayout({ children }) {
   const navigate = useNavigate();
@@ -166,6 +283,7 @@ function HeaderOnlyLayout({ children }) {
   const [filteredShops, setFilteredShops] = useState([]);
   const [platforms, setPlatforms] = useState([]);
   const [shopSelectedTypes, setShopSelectedTypes] = useState({});
+  const [shopProductSyncSettings, setShopProductSyncSettings] = useState({});
 
   useEffect(() => {
     const userStr = localStorage.getItem('user');
@@ -337,17 +455,12 @@ function HeaderOnlyLayout({ children }) {
     syncForm.setFieldsValue({ syncShopId: null });
     
     try {
-      const payload = {
-        platform: selectedPlatform,
+      const payload = buildBatchSyncPayload({
+        selectedPlatform,
         dataTypes,
-        shopIds: [shopId],
-        pageSize: 50,
-        productLanguageList: ['zh-cn', 'en', 'ko', 'ja'],
-        productDetailConcurrency: 5,
-        productDetailDelayMs: 150,
-        productDetailRetryTimes: 5,
-        productDetailRetryDelayMs: 10000
-      };
+        shopId,
+        shopProductSyncSettings
+      });
 
       const response = await fetch('/api/shein-full-sync/batch', {
         method: 'POST',
@@ -517,6 +630,9 @@ function HeaderOnlyLayout({ children }) {
                         <div style={{ fontSize: '12px', color: '#999' }}>
                           {shop.auth_status === 1 ? '已授权' : '未授权'} | 最后同步: {shop.last_sync_at || '从未同步'}
                         </div>
+                        <div style={{ fontSize: '12px', color: '#999', marginTop: '2px' }}>
+                          {`商品成功同步: ${formatSyncDateTime(shop.last_product_sync_success_at)} ｜ 增量起点: ${formatSyncDateTime(shop.last_product_sync_checkpoint_time)} ｜ 上次模式: ${getProductSyncModeText(shop.last_product_sync_mode)}`}
+                        </div>
                       </div>
                       <Button 
                         type="primary" 
@@ -528,6 +644,19 @@ function HeaderOnlyLayout({ children }) {
                         同步所有
                       </Button>
                     </div>
+                    <ProductSyncSettings
+                      shopId={shop.id}
+                      enabled={shop.auth_status === 1}
+                      syncing={syncing}
+                      value={shopProductSyncSettings[shop.id]}
+                      shopMeta={shop}
+                      onChange={(targetShopId, nextSettings) => {
+                        setShopProductSyncSettings(prev => ({
+                          ...prev,
+                          [targetShopId]: normalizeProductSyncSettings(nextSettings)
+                        }));
+                      }}
+                    />
                     <div style={{ marginBottom: '8px' }}>
                       <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>选择同步数据类型：</div>
                       <Checkbox.Group
@@ -629,6 +758,7 @@ function MainLayout() {
   const [filteredShops, setFilteredShops] = useState([]);
   const [platforms, setPlatforms] = useState([]);
   const [shopSelectedTypes, setShopSelectedTypes] = useState({});
+  const [shopProductSyncSettings, setShopProductSyncSettings] = useState({});
   const [activeTopMenu, setActiveTopMenu] = useState('dashboard'); // 当前选中的一级菜单
   const [expandedMenuGroups, setExpandedMenuGroups] = useState({ onlineProducts: true }); // 菜单分组展开状态
 
@@ -823,17 +953,12 @@ function MainLayout() {
     syncForm.setFieldsValue({ syncShopId: null });
     
     try {
-      const payload = {
-        platform: selectedPlatform,
+      const payload = buildBatchSyncPayload({
+        selectedPlatform,
         dataTypes,
-        shopIds: [shopId],
-        pageSize: 50,
-        productLanguageList: ['zh-cn', 'en', 'ko', 'ja'],
-        productDetailConcurrency: 5,
-        productDetailDelayMs: 150,
-        productDetailRetryTimes: 5,
-        productDetailRetryDelayMs: 10000
-      };
+        shopId,
+        shopProductSyncSettings
+      });
 
       const response = await fetch('/api/shein-full-sync/batch', {
         method: 'POST',
@@ -1431,6 +1556,9 @@ function MainLayout() {
                         <div style={{ fontSize: '12px', color: '#999' }}>
                           {shop.auth_status === 1 ? '已授权' : '未授权'} | 最后同步: {shop.last_sync_at || '从未同步'}
                         </div>
+                        <div style={{ fontSize: '12px', color: '#999', marginTop: '2px' }}>
+                          {`商品成功同步: ${formatSyncDateTime(shop.last_product_sync_success_at)} ｜ 增量起点: ${formatSyncDateTime(shop.last_product_sync_checkpoint_time)} ｜ 上次模式: ${getProductSyncModeText(shop.last_product_sync_mode)}`}
+                        </div>
                       </div>
                       <Button 
                         type="primary" 
@@ -1442,6 +1570,19 @@ function MainLayout() {
                         同步所有
                       </Button>
                     </div>
+                    <ProductSyncSettings
+                      shopId={shop.id}
+                      enabled={shop.auth_status === 1}
+                      syncing={syncing}
+                      value={shopProductSyncSettings[shop.id]}
+                      shopMeta={shop}
+                      onChange={(targetShopId, nextSettings) => {
+                        setShopProductSyncSettings(prev => ({
+                          ...prev,
+                          [targetShopId]: normalizeProductSyncSettings(nextSettings)
+                        }));
+                      }}
+                    />
                     <div style={{ marginBottom: '8px' }}>
                       <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>选择同步数据类型：</div>
                       <Checkbox.Group

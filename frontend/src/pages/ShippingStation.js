@@ -5,7 +5,7 @@ import {
 } from 'antd';
 import {
   SearchOutlined, ReloadOutlined, DeleteOutlined, EyeOutlined,
-  PrinterOutlined, SendOutlined, CloseCircleOutlined, DownOutlined
+  PrinterOutlined, SendOutlined, CloseCircleOutlined, DownOutlined, CopyOutlined
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { stockOrdersAPI } from '../api';
@@ -144,6 +144,41 @@ function ShippingStation() {
     setDetailDrawerVisible(true);
   };
 
+  const handleCopySelectedOrderNumbers = async () => {
+    const orderNumbers = Array.from(new Set(
+      selectedOrders
+        .map(order => order.order_number || order.order_no || '')
+        .map(value => String(value).trim())
+        .filter(Boolean)
+    ));
+
+    if (orderNumbers.length === 0) {
+      message.warning('没有可复制的订单号');
+      return;
+    }
+
+    const text = orderNumbers.join('\n');
+
+    try {
+      if (navigator?.clipboard?.writeText && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.setAttribute('readonly', 'readonly');
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+
+      message.success(`已复制 ${orderNumbers.length} 个订单号`);
+    } catch (error) {
+      message.error('复制订单号失败，请重试');
+    }
+  };
 
   const fetchFullOrders = async () => {
     const orderNumbers = selectedOrders.map(o => o.order_number);
@@ -1209,6 +1244,13 @@ function ShippingStation() {
               onClick={() => message.info('批量发货功能开发中...')}
             >
               批量发货
+            </Button>
+            <Button
+              icon={<CopyOutlined />}
+              disabled={selectedOrders.length === 0}
+              onClick={handleCopySelectedOrderNumbers}
+            >
+              复制订单号
             </Button>
             <Popconfirm
               title={`确定要移除选中的 ${selectedOrders.length} 个订单吗？`}

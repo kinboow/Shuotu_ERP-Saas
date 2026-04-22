@@ -437,6 +437,47 @@ function flattenProductRows(product) {
   return rows;
 }
 
+function normalizeSearchText(value) {
+  if (value === null || value === undefined) {
+    return '';
+  }
+  return String(value).trim().toLowerCase();
+}
+
+function getRowSearchableValues(row) {
+  const saleAttributeValues = Array.isArray(row?.sale_attribute_list)
+    ? row.sale_attribute_list.map(item => item?.attributeValueName || item?.attribute_value_name || item?.value || item?.attrValueName || item?.name || '').filter(Boolean)
+    : [];
+  const barcodeValues = Array.isArray(row?.barcode)
+    ? row.barcode.flatMap(item => normalizeBarcodeList(item?.barcodeList || item?.barcode || item?.supplierBarcodeList || item?.supplierBarcode || item?.supplier_sku || item?.supplierSku))
+    : [];
+
+  return [
+    row?.spu_name,
+    row?.skc_name,
+    row?.sku_code,
+    row?.supplier_sku,
+    row?.product_name,
+    row?.product_name_cn,
+    row?.product_name_en,
+    row?.brand_code,
+    row?.category_id,
+    ...saleAttributeValues,
+    ...barcodeValues
+  ]
+    .map(normalizeSearchText)
+    .filter(Boolean);
+}
+
+function matchesLocalProductSearch(row, keyword) {
+  const normalizedKeyword = normalizeSearchText(keyword);
+  if (!normalizedKeyword) {
+    return true;
+  }
+
+  return getRowSearchableValues(row).some(value => value.includes(normalizedKeyword));
+}
+
 // ==================== 店铺管理 ====================
 
 /**
@@ -609,6 +650,8 @@ router.get('/local', async (req, res) => {
 
     const search = (req.query.search || '').trim();
     const countOnly = req.query.countOnly === 'true';
+    const parsedShopId = Number.parseInt(req.query.shop_id ?? req.query.shopId, 10);
+    const shopId = Number.isNaN(parsedShopId) ? null : parsedShopId;
     const shelfStatus = req.query.shelf_status === undefined || req.query.shelf_status === ''
       ? null
       : Number(req.query.shelf_status);
@@ -618,19 +661,18 @@ router.get('/local', async (req, res) => {
 
     const hasShelfFilter = shelfStatus !== null && !Number.isNaN(shelfStatus);
     const hasMallFilter = mallState !== null && !Number.isNaN(mallState);
-
     const where = [];
     const replacements = {};
 
-    if (search) {
-      where.push('(spu_name LIKE :search OR skc_name LIKE :search OR product_name LIKE :search OR supplier_code LIKE :search)');
-      replacements.search = `%${search}%`;
+    if (shopId !== null) {
+      where.push('shop_id = :shopId');
+      replacements.shopId = shopId;
     }
 
     const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
 
     // 如果有SKU维度筛选，需要先取全量再过滤，保证 totalSpu 正确
-    const needInMemoryFilter = hasShelfFilter || hasMallFilter;
+    const needInMemoryFilter = Boolean(search) || hasShelfFilter || hasMallFilter;
 
     if (!needInMemoryFilter) {
       const [countRow] = await sequelize.query(
@@ -689,6 +731,9 @@ router.get('/local', async (req, res) => {
     allSpuList.sort((a, b) => Number(b.id || 0) - Number(a.id || 0));
 
     const allRows = allSpuList.flatMap(flattenProductRows).filter(item => {
+      if (!matchesLocalProductSearch(item, search)) {
+        return false;
+      }
       if (hasShelfFilter && Number(item.shelf_status) !== shelfStatus) {
         return false;
       }

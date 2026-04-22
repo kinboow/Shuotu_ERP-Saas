@@ -16,14 +16,106 @@ class SheinFullShopService {
     const shops = await sequelize.query(`
       SELECT * FROM shein_full_shops ${whereClause} ORDER BY created_at DESC
     `, { type: QueryTypes.SELECT });
+    const productSyncCheckpointMap = await this.getProductSyncCheckpointMap(shops.map(shop => shop.id));
     
     // 隐藏敏感信息
     return shops.map(shop => ({
       ...shop,
+      last_product_sync_success_at: productSyncCheckpointMap.get(shop.id)?.completedAt || null,
+      last_product_sync_checkpoint_time: productSyncCheckpointMap.get(shop.id)?.checkpointTime || null,
+      last_product_sync_mode: productSyncCheckpointMap.get(shop.id)?.actualSyncMode || productSyncCheckpointMap.get(shop.id)?.requestedSyncMode || null,
+      last_product_sync_task_id: productSyncCheckpointMap.get(shop.id)?.taskId || null,
       app_secret: shop.app_secret ? '******' : null,
       secret_key: shop.secret_key ? '******' : null,
       secret_key_encrypted: undefined
     }));
+  }
+
+  static async getProductSyncCheckpointMap(shopIds = []) {
+    const normalizedShopIds = Array.from(new Set(
+      shopIds
+        .map(id => Number.parseInt(id, 10))
+        .filter(id => !Number.isNaN(id))
+    ));
+
+    if (normalizedShopIds.length === 0) {
+      return new Map();
+    }
+
+    const placeholders = normalizedShopIds.map(() => '?').join(', ');
+    const tasks = await sequelize.query(`
+      SELECT shop_id, task_id, completed_at, result
+      FROM sync_tasks
+      WHERE platform = 'shein_full'
+        AND status = 'completed'
+        AND completed_at IS NOT NULL
+        AND shop_id IN (${placeholders})
+      ORDER BY shop_id ASC, completed_at DESC
+    `, {
+      replacements: normalizedShopIds,
+      type: QueryTypes.SELECT
+    });
+
+    const checkpointMap = new Map();
+
+    for (const task of tasks) {
+      const shopId = Number.parseInt(task.shop_id, 10);
+      if (checkpointMap.has(shopId)) {
+        continue;
+      }
+
+      const parsedResult = this.safeJsonParse(task.result);
+      const productResult = parsedResult?.products;
+
+      if (!productResult || productResult.success === false) {
+        continue;
+      }
+
+      if (Number(productResult.failCount || 0) > 0) {
+        continue;
+      }
+
+      const checkpointTime = this.parseDateTime(productResult.syncRangeEnd)
+        || this.parseDateTime(productResult.syncRangeEndAt)
+        || (task.completed_at ? new Date(task.completed_at) : null);
+
+      if (!checkpointTime) {
+        continue;
+      }
+
+      checkpointMap.set(shopId, {
+        taskId: task.task_id,
+        checkpointTime,
+        completedAt: task.completed_at ? new Date(task.completed_at) : null,
+        requestedSyncMode: productResult.requestedSyncMode || null,
+        actualSyncMode: productResult.actualSyncMode || null
+      });
+    }
+
+    return checkpointMap;
+  }
+
+  static safeJsonParse(value) {
+    if (!value) return null;
+    if (typeof value === 'object') return value;
+    try {
+      return JSON.parse(value);
+    } catch (error) {
+      return null;
+    }
+  }
+
+  static parseDateTime(value) {
+    if (!value) return null;
+    if (value === '1970-01-01 08:00:01' || value === '1970-01-01 08:00:00') {
+      return null;
+    }
+    try {
+      const parsed = new Date(value);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    } catch (error) {
+      return null;
+    }
   }
 
   /**

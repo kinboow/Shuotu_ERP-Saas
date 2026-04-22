@@ -993,13 +993,21 @@ function StockOrders() {
     setPrintLoading(true);
     try {
       // 构建打印数据
-      const printData = barcodePrintData.map(item => ({
-        orderNo: item.orderNumber || null,
-        supplierSku: item.supplierSku || null,
-        sheinSku: item.sheinSku,
-        printNumber: item.quantity,
-        printContentType: barcodePrintContentType
-      }));
+      const printData = barcodePrintData
+        .filter(item => Number(item.quantity) > 0)
+        .map(item => ({
+          orderNo: item.orderNumber || null,
+          supplierSku: item.supplierSku || null,
+          sheinSku: item.sheinSku,
+          printNumber: Number(item.quantity) || 0,
+          printContentType: barcodePrintContentType
+        }));
+
+      if (printData.length === 0) {
+        message.warning('请至少保留一个打印数量大于0的SKU');
+        setPrintLoading(false);
+        return;
+      }
 
       // 校验打印总数
       const totalPrintNumber = printData.reduce((sum, item) => sum + item.printNumber, 0);
@@ -1291,6 +1299,7 @@ function StockOrders() {
         // 按照 shopId 分组
         const shopGroups = {};
         barcodePrintData.forEach(item => {
+          if (Number(item.quantity) <= 0) return;
           if (!item.shopId) return;
           if (!shopGroups[item.shopId]) {
             shopGroups[item.shopId] = [];
@@ -1300,7 +1309,7 @@ function StockOrders() {
 
         const shopIds = Object.keys(shopGroups);
         if (shopIds.length === 0) {
-          message.error('无法获取店铺信息，请确保选中的订单有关联店铺');
+          message.warning('请至少保留一个打印数量大于0的SKU');
           setPrintLoading(false);
           return;
         }
@@ -1324,7 +1333,7 @@ function StockOrders() {
             orderNo: item.orderNumber || null,
             supplierSku: item.supplierSku || null,
             sheinSku: item.sheinSku,
-            printNumber: item.quantity,
+            printNumber: Number(item.quantity) || 0,
             printContentType: barcodePrintContentType
           }));
 
@@ -2239,8 +2248,8 @@ function StockOrders() {
         <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ color: '#666' }}>
             已选择 {selectedOrders.length} 个订单，共 {barcodePrintData.length} 个SKU，
-            总打印 {barcodePrintData.reduce((sum, item) => sum + (item.quantity || 1), 0)} 份
-            {barcodePrintData.reduce((sum, item) => sum + (item.quantity || 1), 0) > 2000 && (
+            总打印 {barcodePrintData.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0)} 份
+            {barcodePrintData.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0) > 2000 && (
               <span style={{ color: '#ff4d4f', marginLeft: 8 }}>（超过2000份限制）</span>
             )}
           </span>
@@ -2273,14 +2282,15 @@ function StockOrders() {
                     <td style={{ padding: '8px 12px', textAlign: 'center' }}>
                       <Input
                         type="number"
-                        min={1}
+                        min={0}
                         max={2000}
                         value={item.quantity}
                         style={{ width: 70, textAlign: 'center' }}
                         size="small"
                         onChange={(e) => {
                           const newData = [...barcodePrintData];
-                          newData[index].quantity = Math.max(1, parseInt(e.target.value) || 1);
+                          const parsedValue = parseInt(e.target.value, 10);
+                          newData[index].quantity = Number.isNaN(parsedValue) ? 0 : Math.max(0, parsedValue);
                           setBarcodePrintData(newData);
                         }}
                       />

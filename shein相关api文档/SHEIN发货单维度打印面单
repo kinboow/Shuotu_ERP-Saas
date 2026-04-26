@@ -1,0 +1,113 @@
+发货单维度打印面单
+POST
+/open-api/shipping/delivery/print-package
+自运营
+全托管
+SHEIN自营
+半托管
+POP
+通过该接口获取发货单的物流面单信息；
+
+请求参数（请求头）
+收起
+参数名称	数据类型	是否必须	描述
+Content-Type
+string	否	
+x-lt-openKeyId
+string	否	
+访问用户隐私数据时的唯一权限标识 openKeyId
+x-lt-timestamp
+string	否	
+请求时间戳，格式为时间转换为毫秒的值，也就是从1970年1月1日起至今的时间转换为毫秒，如：1583398764000
+x-lt-signature
+string	否	
+接口签名
+x-lt-language
+string	否	
+指定出参语种，默认中文；支持语种:英语:US 法语:FR 西班牙语:ES 德语:DE 中文简体:CN 泰语:TH 巴西葡语:PT 土耳其语：TR
+请求参数（请求体）
+收起
+参数名称	数据类型	是否必须	描述
+deliveryNo
+string	是	
+发货单号
+返回参数（响应体）
+收起
+数据类型	是否必须	描述
+code
+string	是	
+msg
+string	是	
+错误描述,成功：OK；支持指定语种出参；
+
+info
+object	是	
+url
+string	是	
+pdf链接；支持指定语种出参内容；
+
+packingType
+integer	是	
+备货单类型；
+
+orderNoList
+string[]	是	
+关联的备货单列表；
+
+traceId
+string	否	
+请求的唯一标识；用于异常报错跟踪
+
+请求返回示例
+收起
+请求示例
+复制
+curl --location --request POST 'https://openapi.sheincorp.cn/open-api/shipping/delivery/print-package' \
+--header 'x-lt-signature: test' \
+--header 'x-lt-openKeyId: test' \
+--header 'Content-Type: application/json;charset=UTF-8' \
+--header 'x-lt-timestamp: 1752570817402' \
+--data-raw '{
+ "deliveryNo": "20231109100004"
+}'
+
+
+返回示例
+复制
+{
+	"code": "0",
+	"msg": "OK",
+	"info": {
+		"packingType": 2,
+		"orderNoList": ["B231114500244", "B231114500299"],
+		"url": "https://html2pdf.oss-cn-shenzhen.aliyuncs.com/pdf2-test/gmp/2024/3/15/1710468575962-1ef06e76916803df2de67c2cdc6f40f9.oss.pdf?AWSAccessKeyId=LTAI5tLUgHZGZqEUN2t8bPCR&Expires=1710470376&Signature=yTr%2FESgjmuQlBd%2B50HmHNzmfQqU%3D"
+	}
+}
+
+
+业务返回错误信息
+收起
+语言
+错误信息
+错误码
+未解决你的问题，你可以通过 提交工单 获得帮助
+错误码	错误信息	解决方案
+pfmp97001	
+获取订单信息失败
+该发货单已经取消，无需打印
+pfmp90112	
+订单在SHEIN商家系统无发货信息，不可打印！
+发货单号有误，请检查
+pfmp99400	
+发货单号不能为空
+deliveryNo必填
+832213	
+请求被限流
+接口触发限流。针对每个应用，该接口的qps（每秒最大请求数）为100
+001	
+发货单号不存在
+deliveryNo不存在，开发者可通过查询发货单列表接口获得发货单号
+共5条数据
+限流规则
+收起
+单个开发者接口限流频次：100次/秒

@@ -1,0 +1,189 @@
+收货仓信息查询
+GET
+/open-api/shipping/warehouse
+自运营
+全托管
+SHEIN自营
+半托管
+POP
+通过该接口获取备货单的平台收货仓地址信息（适用全托管、SHEIN自营模式）；
+
+请求参数（请求头）
+收起
+参数名称	数据类型	是否必须	描述
+Content-Type
+string	是	
+application/json;charset=UTF-8
+
+x-lt-openKeyId
+string	是	
+访问用户隐私数据时的唯一权限标识 openKeyId
+x-lt-timestamp
+string	是	
+请求时间戳，格式为时间转换为毫秒的值，也就是从1970年1月1日起至今的时间转换为毫秒，如：1583398764000
+x-lt-signature
+string	是	
+接口签名
+x-lt-language
+string	否	
+指定出参语种，默认中文；支持语种:英语:US 法语:FR 西班牙语:ES 德语:DE 中文简体:CN 泰语:TH 巴西葡语:PT 土耳其语：TR
+
+请求参数（查询参数）
+收起
+参数名称	数据类型	是否必须	描述
+addressId
+int64	是	
+从发货基本信息查询接口获取；
+
+coding
+string	否	
+车队编码
+
+expressMode
+string	否	
+快递编码
+orderType
+integer	是	
+订单类型；1:急采；2：备货
+sendType
+integer	是	
+发货方式；从发货基本信息查询接口获取；
+
+orderNoList
+string[]	否	
+采购单号；建议填写，会影响地址的准确性；最多入参200个；
+
+shippingRoute
+integer	否	
+发货路径： 1：直送 2：集货 默认值为1，直送
+返回参数（响应体）
+收起
+数据类型	是否必须	描述
+code
+string	是	
+响应编码 成功：0
+info
+object	否	
+subWareHouseId
+integer	否	
+子仓id
+subWarehouseName
+string	否	
+子仓名称
+warehouseAddress
+string	否	
+收货仓详细地址
+warehouseContact
+string	否	
+仓联系人
+warehousePhone
+string	否	
+样衣仓联系电话
+
+consolidationSubWareHouseId
+integer	否	
+集货仓子仓id，仅发货路径为集货时有值
+consolidationSubWarehouseName
+string	否	
+集货仓子仓名称，仅发货路径为集货时有值
+consolidationWarehouseAddress
+string	否	
+集货仓收件详细地址，仅发货路径为集货时有值
+consolidationWarehouseCityArea
+string	否	
+集货仓收件区，仅发货路径为集货时有值
+consolidationWarehouseCityName
+string	否	
+集货仓收件城市，仅发货路径为集货时有值
+consolidationWarehouseContact
+string	否	
+集货仓仓联系人，仅发货路径为集货时有值
+consolidationWarehousePhone
+string	否	
+集货仓仓联系方式，仅发货路径为集货时有值
+consolidationWarehouseProvinceName
+string	否	
+集货仓收件省（直辖市），仅发货路径为集货时有值
+msg
+string	否	
+错误描述,成功：OK；（全托管模式支持指定语种出参）；
+
+traceId
+string	否	
+请求的唯一标识；用于异常报错跟踪
+
+请求返回示例
+收起
+请求示例
+复制
+curl --location --request GET 'https://openapi.sheincorp.cn/open-api/shipping/warehouse?addressId=4721&expressMode=shunfeng&orderType=1&sendType=1&orderNoList=1234566,234566,2345667' \
+--header 'x-lt-signature: test' \
+--header 'x-lt-openKeyId: test' \
+--header 'Content-Type: application/json;charset=UTF-8' \
+--header 'x-lt-timestamp: 1752570729613' \
+--header 'language: EN' \
+--data-raw ''
+
+
+返回示例
+复制
+{
+    "code": "0",
+    "msg": "OK",
+    "info": {
+        "subWareHouseId": 4,
+        "subWarehouseName": "佛山佳明仓",
+        "warehouseAddress": "广东 深圳市 大鹏 12345",
+        "warehouseContact": "佳明仓",
+        "warehousePhone": "15222222222"
+    },
+    "bbl": null
+}
+
+
+业务返回错误信息
+收起
+语言
+错误信息
+错误码
+未解决你的问题，你可以通过 提交工单 获得帮助
+错误码	错误信息	解决方案
+pfmp0003	
+送货上门时请选择车队
+sendType=2时请入参coding
+pfmp0003	
+请选择快递公司
+sendType=1时请入参expressMode
+1403	
+发货地址不存在
+请重新调用发货基本信息接口【/open-api/shipping/basic】获取地址ID
+pfmp99400	
+订单类型参数错误
+请入参orderType，1或2
+pfmp99400	
+Failed to convert property value of type 'java.lang.String' to required type 'java.lang.Long' for property 'addressId'; nested exception is java.lang.NumberFormatException: For input string: "null"
+addressId的类型为int64
+pfmp99400	
+发货地址不能为空
+addressId不能为空
+pfmp99400	
+Failed to convert property value of type 'java.lang.String' to required type 'java.lang.Long' for property 'addressId'; nested exception is java.lang.NumberFormatException: For input string: "undefined"
+addressId的类型为int64
+pfmp99400	
+发货方式不能为空;订单类型不能为空
+sendType、addressId、orderType必填
+pfmp99400	
+发货地址不能为空;订单类型不能为空;发货方式不能为空
+sendType、addressId、orderType必填
+pfmp99400	
+发货地址不能为空;订单类型不能为空;发货方式不能为空
+sendType、addressId、orderType必填
+3	
+请选择快递公司
+sendType=1时请入参expressMode
+3	
+送货上门时请选择车队
+sendType=2时请入参coding
+pfmp99400	
+订单类型不能为空;发货方式不能为空
+sendType、addressId、orderType必填

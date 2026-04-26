@@ -1943,10 +1943,14 @@ function StockOrders() {
                   });
                   const data = await response.json();
                   if (data.success) {
-                    message.success(data.message || '已加入发货台');
+                    if (data.data?.rejected > 0) {
+                      message.warning(data.message, 6);
+                    } else {
+                      message.success(data.message || '已加入发货台');
+                    }
                     setSelectedOrders([]);
                   } else {
-                    message.error(data.message || '加入发货台失败');
+                    message.error(data.message || '加入发货台失败', 6);
                   }
                 } catch (error) {
                   message.error('加入发货台失败: ' + error.message);

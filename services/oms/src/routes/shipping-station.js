@@ -119,22 +119,63 @@ router.post('/add', async (req, res) => {
       return res.json({
         success: true,
         message: '所选订单已在发货台中',
-        data: { added: 0, existing: existingIds.length }
+        data: { added: 0, existing: existingIds.length, rejected: 0 }
       });
     }
 
-    // 批量插入
-    const values = newOrderIds.map(orderId => `(${orderId}, NOW())`).join(',');
+    // 校验订单状态：只有 status=2（已下单/待发货）的订单可以加入发货台
+    const orderStatusRows = await sequelize.query(
+      `SELECT id, order_no, status, status_name FROM shein_full_purchase_orders WHERE id IN (:newOrderIds)`,
+      {
+        replacements: { newOrderIds },
+        type: sequelize.QueryTypes.SELECT
+      }
+    );
+
+    const eligibleIds = [];
+    const rejectedOrders = [];
+    orderStatusRows.forEach(row => {
+      if (Number(row.status) === 2) {
+        eligibleIds.push(row.id);
+      } else {
+        rejectedOrders.push({
+          id: row.id,
+          order_no: row.order_no,
+          status: row.status,
+          status_name: row.status_name
+        });
+      }
+    });
+
+    if (eligibleIds.length === 0) {
+      const statusList = rejectedOrders.map(o => `${o.order_no}(${o.status_name})`).join('、');
+      return res.json({
+        success: false,
+        message: `所选订单均不是"待发货"状态，无法加入发货台。${statusList}`,
+        data: { added: 0, existing: existingIds.length, rejected: rejectedOrders.length, rejectedOrders }
+      });
+    }
+
+    // 批量插入符合条件的订单
+    const values = eligibleIds.map(orderId => `(${orderId}, NOW())`).join(',');
     await sequelize.query(
       `INSERT INTO shipping_station (order_id, added_at) VALUES ${values}`
     );
 
+    let msg = `成功添加 ${eligibleIds.length} 个订单到发货台`;
+    if (rejectedOrders.length > 0) {
+      const statusList = rejectedOrders.map(o => `${o.order_no}(${o.status_name})`).join('、');
+      msg += `；${rejectedOrders.length} 个订单因非"待发货"状态被跳过：${statusList}`;
+    }
+
     res.json({
       success: true,
-      message: `成功添加 ${newOrderIds.length} 个订单到发货台`,
+      message: msg,
       data: {
-        added: newOrderIds.length,
-        existing: existingIds.length
+        added: eligibleIds.length,
+        existing: existingIds.length,
+        rejected: rejectedOrders.length,
+        rejectedOrders
       }
     });
   } catch (error) {

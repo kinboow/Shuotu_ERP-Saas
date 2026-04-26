@@ -1,17 +1,15 @@
 import axios from 'axios';
 
 // 自动检测API地址
-// 优先使用环境变量配置，否则使用当前主机IP
+// 优先使用环境变量配置，否则使用相对路径（通过dev server代理）
 const getApiBaseUrl = () => {
   // 优先使用环境变量
   if (process.env.REACT_APP_API_URL) {
     return process.env.REACT_APP_API_URL;
   }
   
-  // 使用服务主机地址，自动匹配当前协议
-  const serviceHost = process.env.REACT_APP_SERVICE_HOST || window.location.hostname;
-  const protocol = window.location.protocol; // http: 或 https:
-  return `${protocol}//${serviceHost}:5000/api`;
+  // 默认使用相对路径，所有请求通过前端代理转发到网关
+  return '/api';
 };
 
 const API_BASE_URL = getApiBaseUrl();

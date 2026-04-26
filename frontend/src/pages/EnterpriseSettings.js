@@ -5,14 +5,13 @@ import { enterpriseAPI } from '../api';
 
 const { TextArea } = Input;
 
-// OSS服务地址，自动匹配当前协议
+// OSS服务地址，通过前端代理转发
 const getOssUrl = () => {
   if (process.env.REACT_APP_OSS_URL) {
     return process.env.REACT_APP_OSS_URL;
   }
-  const serviceHost = process.env.REACT_APP_SERVICE_HOST || window.location.hostname;
-  const protocol = window.location.protocol;
-  return `${protocol}//${serviceHost}:5000`; // 通过 Gateway 代理访问 OSS
+  // 使用相对路径，通过前端dev server代理转发到网关
+  return '';
 };
 
 function EnterpriseSettings() {

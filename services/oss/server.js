@@ -20,11 +20,14 @@ const SECRET_KEY = process.env.OSS_SECRET_KEY || 'local-oss-secret-key-2024';
 const FILE_RETENTION_HOURS = parseInt(process.env.FILE_RETENTION_HOURS) || 24;
 const DEFAULT_EXPIRES_IN = parseInt(process.env.DEFAULT_EXPIRES_IN) || 7200;
 // 公网访问地址（用于生成外部可访问的URL）
-const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || null;
+// 设为空字符串 = 使用相对路径URL（通过前端代理访问，无需单独暴露端口）
+const PUBLIC_BASE_URL = process.env.hasOwnProperty('PUBLIC_BASE_URL') ? process.env.PUBLIC_BASE_URL : null;
 
 // 获取基础URL（优先使用公网地址）
 const getBaseUrl = (req) => {
-  if (PUBLIC_BASE_URL) {
+  // 如果明确配置了PUBLIC_BASE_URL（包括空字符串），直接使用
+  // 空字符串 = 返回相对路径URL（如 /file/images/xxx.jpg）
+  if (PUBLIC_BASE_URL !== null) {
     return PUBLIC_BASE_URL;
   }
   // 检查是否通过代理访问（X-Forwarded-Host）

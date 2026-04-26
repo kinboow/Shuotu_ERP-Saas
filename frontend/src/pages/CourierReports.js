@@ -29,7 +29,7 @@ import dayjs from 'dayjs';
 const { RangePicker } = DatePicker;
 const { Option } = Select;
 
-const API_URL = process.env.REACT_APP_API_URL || 'https://erp.hlsd.work:5000/api';
+const API_URL = process.env.REACT_APP_API_URL || '/api';
 
 const CourierReports = () => {
   const [loading, setLoading] = useState(false);

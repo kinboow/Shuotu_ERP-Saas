@@ -904,7 +904,7 @@ function StockOrders() {
       
       // 尝试上传到OSS服务，自动匹配当前协议
       let useOss = false;
-      const ossUrl = process.env.REACT_APP_OSS_URL || `${window.location.protocol}//${window.location.hostname}:5000`;
+      const ossUrl = process.env.REACT_APP_OSS_URL || '';
       try {
         const healthCheck = await fetch(`${ossUrl}/health`, { 
           method: 'GET',

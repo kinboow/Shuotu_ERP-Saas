@@ -396,6 +396,70 @@ class SheinFullAdapter extends BaseAdapter {
     return await this.request('GET', '/open-api/shipping/delivery', queryParams, { useXltLanguage: true });
   }
 
+  /**
+   * 物流产品查询（SHEIN集成物流公司列表）
+   * POST /open-api/shipping/express-company-list-v2
+   */
+  async getExpressCompanyList(params) {
+    const data = {
+      addressId: params.addressId,
+      deliveryType: params.deliveryType || '1',
+      orderType: params.orderType,
+      reserveParcelTime: params.reserveParcelTime,
+      purchaseOrders: params.purchaseOrders // [{orderNo, skuInfos: [{qty, skuCode}]}]
+    };
+    return await this.request('POST', '/open-api/shipping/express-company-list-v2', data, { useXltLanguage: true });
+  }
+
+  /**
+   * 收货仓信息查询
+   * GET /open-api/shipping/warehouse
+   */
+  async getWarehouseInfo(params) {
+    const queryParams = {
+      addressId: params.addressId,
+      orderType: params.orderType,
+      sendType: params.sendType
+    };
+    if (params.expressMode) queryParams.expressMode = params.expressMode;
+    if (params.coding) queryParams.coding = params.coding;
+    if (params.orderNoList) queryParams.orderNoList = params.orderNoList.join(',');
+    if (params.shippingRoute) queryParams.shippingRoute = params.shippingRoute;
+    return await this.request('GET', '/open-api/shipping/warehouse', queryParams, { useXltLanguage: true });
+  }
+
+  /**
+   * 创建发货单
+   * POST /open-api/shipping/orderToShipping
+   */
+  async createDeliveryOrder(data) {
+    return await this.request('POST', '/open-api/shipping/orderToShipping', data, { useXltLanguage: true });
+  }
+
+  /**
+   * 发货单维度打印面单
+   * POST /open-api/shipping/delivery/print-package
+   */
+  async printDeliveryLabel(deliveryNo) {
+    return await this.request('POST', '/open-api/shipping/delivery/print-package', { deliveryNo }, { useXltLanguage: true });
+  }
+
+  /**
+   * 查询SHEIN合作物流预估运费
+   * POST /open-api/openapi-business-backend/purchase-estimated-fee
+   */
+  async getEstimatedFee(params) {
+    const data = {
+      addressId: params.addressId,
+      agedProductCode: params.agedProductCode,
+      expressInfoList: params.expressInfoList, // [{companyCode, isRecommend}]
+      orderNoList: params.orderNoList,
+      orderType: params.orderType,
+      weight: params.weight
+    };
+    return await this.request('POST', '/open-api/openapi-business-backend/purchase-estimated-fee', data);
+  }
+
   // ==================== 财务管理 ====================
 
   /**

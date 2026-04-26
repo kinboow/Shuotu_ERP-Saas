@@ -155,6 +155,16 @@ export const sheinFullSyncAPI = {
   getLocalFinanceReports: (data) => api.post('/shein-full/finance-reports/local', data)
 };
 
+// SHEIN(full)发货管理API
+export const sheinFullShippingAPI = {
+  getShippingBasic: (data) => api.post('/shein-full/shipping-basic', data),
+  getExpressCompanyList: (data) => api.post('/shein-full/express-company-list', data),
+  getWarehouseInfo: (data) => api.post('/shein-full/warehouse-info', data),
+  createDelivery: (data) => api.post('/shein-full/create-delivery', data),
+  printDeliveryLabel: (data) => api.post('/shein-full/print-delivery-label', data),
+  getEstimatedFee: (data) => api.post('/shein-full/estimated-fee', data)
+};
+
 // 兼容旧API名称（映射到shein-full）
 export const sheinAuthAPI = sheinFullAuthAPI;
 export const sheinProductsAPI = sheinFullProductsAPI;

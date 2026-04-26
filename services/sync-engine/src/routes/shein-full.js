@@ -1578,6 +1578,87 @@ router.post('/delivery-list', async (req, res) => {
   }
 });
 
+/**
+ * 物流产品查询（SHEIN集成物流公司列表）
+ * POST /api/shein-full/express-company-list
+ */
+router.post('/express-company-list', async (req, res) => {
+  try {
+    const { shopId, ...params } = req.body;
+    if (!shopId) return res.status(400).json({ success: false, message: 'shopId不能为空' });
+    const adapter = await getAdapter(shopId);
+    const result = await adapter.getExpressCompanyList(params);
+    res.json({ success: true, data: result.info });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * 收货仓信息查询
+ * POST /api/shein-full/warehouse-info
+ */
+router.post('/warehouse-info', async (req, res) => {
+  try {
+    const { shopId, ...params } = req.body;
+    if (!shopId) return res.status(400).json({ success: false, message: 'shopId不能为空' });
+    const adapter = await getAdapter(shopId);
+    const result = await adapter.getWarehouseInfo(params);
+    res.json({ success: true, data: result.info });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * 创建发货单
+ * POST /api/shein-full/create-delivery
+ */
+router.post('/create-delivery', async (req, res) => {
+  try {
+    const { shopId, ...params } = req.body;
+    if (!shopId) return res.status(400).json({ success: false, message: 'shopId不能为空' });
+    const adapter = await getAdapter(shopId);
+    const result = await adapter.createDeliveryOrder(params);
+    res.json({ success: true, data: result.info });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * 发货单维度打印面单
+ * POST /api/shein-full/print-delivery-label
+ */
+router.post('/print-delivery-label', async (req, res) => {
+  try {
+    const { shopId, deliveryNo } = req.body;
+    if (!shopId) return res.status(400).json({ success: false, message: 'shopId不能为空' });
+    if (!deliveryNo) return res.status(400).json({ success: false, message: '发货单号不能为空' });
+    const adapter = await getAdapter(shopId);
+    const result = await adapter.printDeliveryLabel(deliveryNo);
+    res.json({ success: true, data: result.info });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * 查询SHEIN合作物流预估运费
+ * POST /api/shein-full/estimated-fee
+ */
+router.post('/estimated-fee', async (req, res) => {
+  try {
+    const { shopId, ...params } = req.body;
+    if (!shopId) return res.status(400).json({ success: false, message: 'shopId不能为空' });
+    const adapter = await getAdapter(shopId);
+    const result = await adapter.getEstimatedFee(params);
+    res.json({ success: true, data: result.info });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // ==================== 财务管理 ====================
 
 /**

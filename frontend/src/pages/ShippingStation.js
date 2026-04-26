@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import {
   Table, Tag, Space, Button, Input, Select, message, Card, Row, Col, Image,
-  Modal, Form, Drawer, Descriptions, Empty, Tooltip, Badge, Popconfirm, Dropdown
+  Modal, Form, Drawer, Descriptions, Empty, Tooltip, Badge, Popconfirm, Dropdown,
+  Steps, InputNumber, Spin, Divider, Alert, Result
 } from 'antd';
 import {
   SearchOutlined, ReloadOutlined, DeleteOutlined, EyeOutlined,
-  PrinterOutlined, SendOutlined, CloseCircleOutlined, DownOutlined, CopyOutlined
+  PrinterOutlined, SendOutlined, CloseCircleOutlined, DownOutlined, CopyOutlined,
+  CheckCircleOutlined, LoadingOutlined
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import { stockOrdersAPI } from '../api';
+import { stockOrdersAPI, sheinFullShippingAPI } from '../api';
 import JsBarcode from 'jsbarcode';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -114,6 +116,27 @@ function ShippingStation() {
   const [barcodePrintFormatType, setBarcodePrintFormatType] = useState(1);
   const [fullOrdersForPrint, setFullOrdersForPrint] = useState([]);
 
+  // 发货相关状态
+  const [shippingModalVisible, setShippingModalVisible] = useState(false);
+  const [shippingStep, setShippingStep] = useState(0);
+  const [shippingLoading, setShippingLoading] = useState(false);
+  const [shippingBasicInfo, setShippingBasicInfo] = useState(null);
+  const [shippingConfig, setShippingConfig] = useState({
+    addressId: null,
+    deliveryType: 1,
+    supplierWarehouseId: null,
+    expressId: '',
+    agedProductCode: '',
+    reserveParcelTime: '',
+    packageWeight: '',
+    packageNumber: 1
+  });
+  const [shippingMethods, setShippingMethods] = useState([]);
+  const [warehouseInfo, setWarehouseInfo] = useState(null);
+  const [shippingOrderData, setShippingOrderData] = useState([]);
+  const [shippingItemList, setShippingItemList] = useState([]); // 可编辑发货数量的SKU列表
+  const [deliveryResult, setDeliveryResult] = useState(null);
+
   useEffect(() => {
     fetchOrders();
     fetchShopList();
@@ -215,6 +238,304 @@ function ShippingStation() {
       message.success(`已复制 ${orderNumbers.length} 个订单号`);
     } catch (error) {
       message.error('复制订单号失败，请重试');
+    }
+  };
+
+  // ==================== 发货流程 ====================
+
+  const resetShippingState = () => {
+    setShippingStep(0);
+    setShippingLoading(false);
+    setShippingBasicInfo(null);
+    setShippingConfig({
+      addressId: null, deliveryType: 1, supplierWarehouseId: null,
+      expressId: '', agedProductCode: '', reserveParcelTime: '',
+      packageWeight: '', packageNumber: 1
+    });
+    setShippingMethods([]);
+    setWarehouseInfo(null);
+    setShippingOrderData([]);
+    setShippingItemList([]);
+    setDeliveryResult(null);
+  };
+
+  const handleStartShipping = async () => {
+    if (selectedOrders.length === 0) {
+      message.warning('请先选择要发货的订单');
+      return;
+    }
+
+    // 校验：仅支持 SHEIN 平台
+    const nonShein = selectedOrders.filter(o => o.platform !== 'shein');
+    if (nonShein.length > 0) {
+      message.error('目前仅支持 SHEIN 平台订单发货');
+      return;
+    }
+
+    // 校验：同一店铺
+    const shopIds = [...new Set(selectedOrders.map(o => o.shop_id))];
+    if (shopIds.length > 1) {
+      message.error('请选择同一店铺的订单一起发货');
+      return;
+    }
+
+    // 校验：同一订单类型
+    const orderTypes = [...new Set(selectedOrders.map(o => o.order_type))];
+    if (orderTypes.length > 1) {
+      message.error('急采和备货订单不能一起发货，请分开操作');
+      return;
+    }
+
+    resetShippingState();
+    setShippingModalVisible(true);
+    setShippingLoading(true);
+
+    try {
+      // 获取完整订单数据（含 SKU 明细）
+      const orderNumbers = selectedOrders.map(o => o.order_number);
+      const response = await fetch(`/api/stock-orders?order_number=${orderNumbers.join(',')}&platform=shein`);
+      const ordersData = await response.json();
+      if (!ordersData.success || !ordersData.data?.length) {
+        throw new Error('获取订单详情失败');
+      }
+      setShippingOrderData(ordersData.data);
+
+      // 构建可编辑的SKU发货数量列表
+      const itemList = [];
+      ordersData.data.forEach(order => {
+        (order.items || []).forEach(item => {
+          const qty = item.order_quantity || item.orderQuantity || 0;
+          itemList.push({
+            orderNo: order.order_no || order.order_number,
+            skuCode: item.sku_code,
+            supplierCode: item.supplier_code || '-',
+            skuAttribute: item.sku_attribute || item.suffix_zh || '-',
+            skc: item.skc || '-',
+            orderQuantity: qty,
+            deliveryQuantity: qty
+          });
+        });
+      });
+      setShippingItemList(itemList);
+
+      // 获取发货基本信息
+      const shopId = shopIds[0];
+      const orderTypeValue = orderTypes[0] === '急采' ? 1 : 2;
+      const basicRes = await sheinFullShippingAPI.getShippingBasic({ shopId, orderType: orderTypeValue });
+      if (!basicRes.data?.success) {
+        throw new Error(basicRes.data?.message || '获取发货基本信息失败');
+      }
+      const basicInfo = basicRes.data.data;
+      setShippingBasicInfo(basicInfo);
+
+      // 设置默认值
+      const defaultAddr = basicInfo.addressList?.[0];
+      const defaultWarehouse = basicInfo.supplierWarehouseList?.[0];
+      setShippingConfig(prev => ({
+        ...prev,
+        addressId: defaultAddr?.addressId || null,
+        supplierWarehouseId: defaultWarehouse?.supplierWarehouseId || null,
+        deliveryType: basicInfo.deliveryTypeList?.[0]?.deliveryTypeValue || 1
+      }));
+    } catch (error) {
+      message.error('初始化发货信息失败: ' + (error.response?.data?.message || error.message));
+      setShippingModalVisible(false);
+    } finally {
+      setShippingLoading(false);
+    }
+  };
+
+  const handleShippingStepNext = async () => {
+    if (shippingStep === 0) {
+      // Step 0 → Step 1: 校验选择 → 加载物流产品
+      if (!shippingConfig.addressId) {
+        message.warning('请选择发货地址');
+        return;
+      }
+      if (!shippingConfig.supplierWarehouseId) {
+        message.warning('请选择供应商仓库');
+        return;
+      }
+
+      const totalDelivery = shippingItemList.reduce((s, i) => s + (i.deliveryQuantity || 0), 0);
+      if (totalDelivery === 0) {
+        message.warning('请至少设置一个SKU的发货数量');
+        return;
+      }
+
+      if (shippingConfig.deliveryType === 1) {
+        // 快递发货 → 需要查询物流产品
+        setShippingLoading(true);
+        try {
+          const orderTypeValue = selectedOrders[0]?.order_type === '急采' ? 1 : 2;
+          const purchaseOrders = shippingOrderData.map(order => ({
+            orderNo: order.order_no || order.order_number,
+            skuInfos: (order.items || []).map(item => ({
+              qty: item.order_quantity || item.orderQuantity || 1,
+              skuCode: item.sku_code
+            }))
+          }));
+
+          // 默认取件时间：明天此刻
+          const defaultPickupTime = new Date(Date.now() + 24 * 60 * 60 * 1000);
+          const reserveTime = shippingConfig.reserveParcelTime ||
+            defaultPickupTime.toISOString().slice(0, 19).replace('T', ' ');
+
+          setShippingConfig(prev => ({ ...prev, reserveParcelTime: reserveTime }));
+
+          const res = await sheinFullShippingAPI.getExpressCompanyList({
+            shopId: selectedOrders[0].shop_id,
+            addressId: shippingConfig.addressId,
+            deliveryType: '1',
+            orderType: orderTypeValue,
+            reserveParcelTime: reserveTime,
+            purchaseOrders
+          });
+
+          if (!res.data?.success) {
+            throw new Error(res.data?.message || '查询物流产品失败');
+          }
+
+          const methods = res.data.data?.shippingMethods || [];
+          setShippingMethods(methods);
+
+          if (methods.length > 0) {
+            const firstMethod = methods[0];
+            const recommended = firstMethod.expressInfos?.find(e => e.isRecommend);
+            const firstExpress = recommended || firstMethod.expressInfos?.[0];
+            setShippingConfig(prev => ({
+              ...prev,
+              agedProductCode: firstMethod.agedProductCode || '',
+              expressId: firstExpress?.companyCode || ''
+            }));
+          }
+        } catch (error) {
+          message.error('查询物流产品失败: ' + (error.response?.data?.message || error.message));
+          return;
+        } finally {
+          setShippingLoading(false);
+        }
+      }
+
+      setShippingStep(1);
+    } else if (shippingStep === 1) {
+      // Step 1 → Step 2: 校验物流选择 → 查询收货仓
+      if (shippingConfig.deliveryType === 1 && !shippingConfig.expressId) {
+        message.warning('请选择快递公司');
+        return;
+      }
+      if (shippingConfig.deliveryType === 1 && !shippingConfig.reserveParcelTime) {
+        message.warning('请设置预约取件时间');
+        return;
+      }
+
+      setShippingLoading(true);
+      try {
+        const orderTypeValue = selectedOrders[0]?.order_type === '急采' ? 1 : 2;
+        const orderNoList = shippingOrderData.map(o => o.order_no || o.order_number);
+        const res = await sheinFullShippingAPI.getWarehouseInfo({
+          shopId: selectedOrders[0].shop_id,
+          addressId: shippingConfig.addressId,
+          orderType: orderTypeValue,
+          sendType: shippingConfig.deliveryType,
+          expressMode: shippingConfig.expressId || undefined,
+          orderNoList
+        });
+        if (res.data?.success) {
+          setWarehouseInfo(res.data.data);
+        }
+      } catch (error) {
+        console.warn('查询收货仓信息失败:', error.message);
+      } finally {
+        setShippingLoading(false);
+      }
+
+      setShippingStep(2);
+    }
+  };
+
+  const handleConfirmShipping = async () => {
+    setShippingLoading(true);
+    try {
+      const orderTypeValue = selectedOrders[0]?.order_type === '急采' ? 1 : 2;
+
+      // 构建发货明细 list（使用用户调整后的发货数量）
+      const list = shippingItemList
+        .filter(item => item.deliveryQuantity > 0)
+        .map(item => ({
+          orderNo: item.orderNo,
+          skuCode: item.skuCode,
+          orderQuantity: item.orderQuantity,
+          tempDeliveryQuantity: item.deliveryQuantity,
+          packageNum: shippingConfig.packageNumber
+        }));
+
+      if (list.length === 0) {
+        message.warning('没有需要发货的SKU，请至少设置一个SKU的发货数量');
+        setShippingLoading(false);
+        return;
+      }
+
+      const totalPieces = list.reduce((sum, l) => sum + l.tempDeliveryQuantity, 0);
+
+      const payload = {
+        shopId: selectedOrders[0].shop_id,
+        adminName: 'ERP系统',
+        deliveryType: shippingConfig.deliveryType,
+        orderType: orderTypeValue,
+        supplierWarehouseId: shippingConfig.supplierWarehouseId,
+        expressInfo: [{
+          addrId: shippingConfig.addressId,
+          packageNumber: shippingConfig.packageNumber,
+          packageWeight: shippingConfig.packageWeight ? parseFloat(shippingConfig.packageWeight) : undefined,
+          reserveParcelTime: shippingConfig.reserveParcelTime || undefined
+        }],
+        list
+      };
+
+      if (shippingConfig.deliveryType === 1 && shippingConfig.expressId) {
+        payload.expressId = shippingConfig.expressId;
+      }
+      if (shippingConfig.agedProductCode) {
+        payload.agedProductCode = shippingConfig.agedProductCode;
+      }
+
+      const res = await sheinFullShippingAPI.createDelivery(payload);
+      if (res.data?.success) {
+        setDeliveryResult(res.data.data);
+        setShippingStep(3);
+        message.success('发货单创建成功！');
+      } else {
+        message.error(res.data?.message || '创建发货单失败');
+      }
+    } catch (error) {
+      message.error('创建发货单失败: ' + (error.response?.data?.message || error.message));
+    } finally {
+      setShippingLoading(false);
+    }
+  };
+
+  const handlePrintDeliveryLabel = async () => {
+    if (!deliveryResult?.deliveryCode) {
+      message.warning('没有可打印的发货单');
+      return;
+    }
+    setShippingLoading(true);
+    try {
+      const res = await sheinFullShippingAPI.printDeliveryLabel({
+        shopId: selectedOrders[0].shop_id,
+        deliveryNo: deliveryResult.deliveryCode
+      });
+      if (res.data?.success && res.data.data?.url) {
+        window.open(res.data.data.url, '_blank');
+        message.success('面单已在新窗口打开');
+      } else {
+        message.error(res.data?.message || '获取面单失败');
+      }
+    } catch (error) {
+      message.error('打印面单失败: ' + (error.response?.data?.message || error.message));
+    } finally {
+      setShippingLoading(false);
     }
   };
 
@@ -1281,7 +1602,7 @@ function ShippingStation() {
               type="primary"
               icon={<SendOutlined />}
               disabled={selectedOrders.length === 0}
-              onClick={() => message.info('批量发货功能开发中...')}
+              onClick={handleStartShipping}
             >
               批量发货
             </Button>
@@ -1508,6 +1829,399 @@ function ShippingStation() {
             </ul>
           </div>
         </div>
+      </Modal>
+
+      {/* 发货弹窗 */}
+      <Modal
+        title="批量发货"
+        open={shippingModalVisible}
+        onCancel={() => { setShippingModalVisible(false); resetShippingState(); }}
+        footer={null}
+        width={800}
+        destroyOnClose
+      >
+        <Steps
+          current={shippingStep}
+          size="small"
+          style={{ marginBottom: 24 }}
+          items={[
+            { title: '基本配置' },
+            { title: '选择物流' },
+            { title: '确认发货' },
+            { title: '发货结果' }
+          ]}
+        />
+
+        <Spin spinning={shippingLoading}>
+          {/* Step 0: 基本配置 */}
+          {shippingStep === 0 && shippingBasicInfo && (
+            <div>
+              <Alert
+                type="info"
+                showIcon
+                style={{ marginBottom: 16 }}
+                message={`已选 ${selectedOrders.length} 个订单，订单类型：${selectedOrders[0]?.order_type || '-'}，店铺：${selectedOrders[0]?.shop_name || '-'}`}
+              />
+
+              <Descriptions bordered column={1} size="small">
+                <Descriptions.Item label="发货地址">
+                  <Select
+                    value={shippingConfig.addressId}
+                    onChange={(v) => setShippingConfig(prev => ({ ...prev, addressId: v }))}
+                    style={{ width: '100%' }}
+                    placeholder="选择发货地址"
+                  >
+                    {(shippingBasicInfo.addressList || []).map(addr => (
+                      <Select.Option key={addr.addressId} value={addr.addressId}>
+                        {addr.addressName}
+                      </Select.Option>
+                    ))}
+                  </Select>
+                </Descriptions.Item>
+                <Descriptions.Item label="发货方式">
+                  <Select
+                    value={shippingConfig.deliveryType}
+                    onChange={(v) => setShippingConfig(prev => ({ ...prev, deliveryType: v }))}
+                    style={{ width: '100%' }}
+                  >
+                    {(shippingBasicInfo.deliveryTypeList || []).map(dt => (
+                      <Select.Option key={dt.deliveryTypeValue} value={dt.deliveryTypeValue}>
+                        {dt.deliveryTypeName}
+                      </Select.Option>
+                    ))}
+                  </Select>
+                </Descriptions.Item>
+                <Descriptions.Item label="供应商仓库">
+                  <Select
+                    value={shippingConfig.supplierWarehouseId}
+                    onChange={(v) => setShippingConfig(prev => ({ ...prev, supplierWarehouseId: v }))}
+                    style={{ width: '100%' }}
+                    placeholder="选择仓库"
+                  >
+                    {(shippingBasicInfo.supplierWarehouseList || []).map(wh => (
+                      <Select.Option key={wh.supplierWarehouseId} value={wh.supplierWarehouseId}>
+                        {wh.warehouseName}
+                      </Select.Option>
+                    ))}
+                  </Select>
+                </Descriptions.Item>
+                <Descriptions.Item label="包裹数量">
+                  <InputNumber
+                    min={1} max={999}
+                    value={shippingConfig.packageNumber}
+                    onChange={(v) => setShippingConfig(prev => ({ ...prev, packageNumber: v || 1 }))}
+                  />
+                </Descriptions.Item>
+                <Descriptions.Item label="包裹重量(kg)">
+                  <InputNumber
+                    min={0} max={99999} step={0.1}
+                    value={shippingConfig.packageWeight}
+                    onChange={(v) => setShippingConfig(prev => ({ ...prev, packageWeight: v }))}
+                    placeholder="选填"
+                    style={{ width: 150 }}
+                  />
+                </Descriptions.Item>
+              </Descriptions>
+
+              <div style={{ marginTop: 16, padding: 12, background: '#fafafa', borderRadius: 4 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <div style={{ fontWeight: 500 }}>
+                    发货明细
+                    <span style={{ fontSize: 12, color: '#999', fontWeight: 'normal', marginLeft: 8 }}>
+                      （可调整每个SKU的发货数量）
+                    </span>
+                  </div>
+                  <Button size="small" onClick={() => {
+                    setShippingItemList(prev => prev.map(item => ({ ...item, deliveryQuantity: item.orderQuantity })));
+                  }}>重置为下单数量</Button>
+                </div>
+                <div style={{ maxHeight: 320, overflow: 'auto', border: '1px solid #e8e8e8', borderRadius: 4 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                    <thead>
+                      <tr style={{ backgroundColor: '#fafafa', position: 'sticky', top: 0, zIndex: 1 }}>
+                        <th style={{ padding: '6px 10px', textAlign: 'left', borderBottom: '1px solid #e8e8e8' }}>采购单号</th>
+                        <th style={{ padding: '6px 10px', textAlign: 'left', borderBottom: '1px solid #e8e8e8' }}>货号</th>
+                        <th style={{ padding: '6px 10px', textAlign: 'left', borderBottom: '1px solid #e8e8e8' }}>规格</th>
+                        <th style={{ padding: '6px 10px', textAlign: 'center', borderBottom: '1px solid #e8e8e8' }}>下单数量</th>
+                        <th style={{ padding: '6px 10px', textAlign: 'center', borderBottom: '1px solid #e8e8e8' }}>发货数量</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {shippingItemList.map((item, idx) => (
+                        <tr key={idx} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                          <td style={{ padding: '6px 10px' }}>
+                            <Tag color="blue" style={{ fontSize: 11 }}>{item.orderNo}</Tag>
+                          </td>
+                          <td style={{ padding: '6px 10px' }}>{item.supplierCode}</td>
+                          <td style={{ padding: '6px 10px' }}>{item.skuAttribute}</td>
+                          <td style={{ padding: '6px 10px', textAlign: 'center', color: '#999' }}>{item.orderQuantity}</td>
+                          <td style={{ padding: '6px 10px', textAlign: 'center' }}>
+                            <InputNumber
+                              min={0}
+                              max={item.orderQuantity}
+                              value={item.deliveryQuantity}
+                              size="small"
+                              style={{ width: 70 }}
+                              onChange={(v) => {
+                                setShippingItemList(prev => {
+                                  const next = [...prev];
+                                  next[idx] = { ...next[idx], deliveryQuantity: v ?? 0 };
+                                  return next;
+                                });
+                              }}
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
+                  <span>
+                    共 <strong>{shippingItemList.length}</strong> 个SKU，
+                    下单总数 <strong>{shippingItemList.reduce((s, i) => s + i.orderQuantity, 0)}</strong> 件
+                  </span>
+                  <span>
+                    本次发货 <strong style={{ color: '#1890ff', fontSize: 16 }}>
+                      {shippingItemList.reduce((s, i) => s + (i.deliveryQuantity || 0), 0)}
+                    </strong> 件
+                    {shippingItemList.some(i => i.deliveryQuantity < i.orderQuantity) && (
+                      <Tag color="orange" style={{ marginLeft: 8 }}>部分发货</Tag>
+                    )}
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ marginTop: 20, textAlign: 'right' }}>
+                <Space>
+                  <Button onClick={() => { setShippingModalVisible(false); resetShippingState(); }}>取消</Button>
+                  <Button type="primary" onClick={handleShippingStepNext}>下一步</Button>
+                </Space>
+              </div>
+            </div>
+          )}
+
+          {/* Step 1: 选择物流 */}
+          {shippingStep === 1 && (
+            <div>
+              {shippingConfig.deliveryType === 1 ? (
+                <>
+                  <Alert
+                    type="info" showIcon style={{ marginBottom: 16 }}
+                    message="请选择SHEIN合作物流公司，带 ★ 标记为平台推荐物流"
+                  />
+
+                  {shippingMethods.length === 0 ? (
+                    <Empty description="暂无可用物流产品" />
+                  ) : (
+                    shippingMethods.map(method => (
+                      <div key={method.agedProductCode} style={{ marginBottom: 16 }}>
+                        <div style={{ fontWeight: 500, marginBottom: 8 }}>
+                          <Tag color="geekblue">{method.agedProductName || method.agedProductCode}</Tag>
+                          {method.purchaseOrders?.length > 0 && (
+                            <span style={{ fontSize: 12, color: '#999', marginLeft: 8 }}>
+                              适用订单：{method.purchaseOrders.join(', ')}
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                          {(method.expressInfos || []).map(expr => (
+                            <div
+                              key={expr.companyCode}
+                              onClick={() => setShippingConfig(prev => ({
+                                ...prev,
+                                expressId: expr.companyCode,
+                                agedProductCode: method.agedProductCode
+                              }))}
+                              style={{
+                                padding: '10px 16px',
+                                border: shippingConfig.expressId === expr.companyCode ? '2px solid #1890ff' : '1px solid #d9d9d9',
+                                borderRadius: 6,
+                                cursor: 'pointer',
+                                background: shippingConfig.expressId === expr.companyCode ? '#e6f7ff' : '#fff',
+                                minWidth: 120,
+                                textAlign: 'center',
+                                transition: 'all 0.2s'
+                              }}
+                            >
+                              <div style={{ fontWeight: 500 }}>
+                                {expr.isRecommend && <span style={{ color: '#faad14', marginRight: 4 }}>★</span>}
+                                {expr.companyName}
+                              </div>
+                              <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>{expr.companyCode}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))
+                  )}
+
+                  <Divider />
+                  <Descriptions bordered column={1} size="small">
+                    <Descriptions.Item label="预约取件时间">
+                      <input
+                        type="datetime-local"
+                        value={(shippingConfig.reserveParcelTime || '').replace(' ', 'T').slice(0, 16)}
+                        onChange={(e) => {
+                          const val = e.target.value ? e.target.value.replace('T', ' ') + ':00' : '';
+                          setShippingConfig(prev => ({ ...prev, reserveParcelTime: val }));
+                        }}
+                        style={{ padding: '4px 8px', border: '1px solid #d9d9d9', borderRadius: 4 }}
+                      />
+                    </Descriptions.Item>
+                  </Descriptions>
+                </>
+              ) : (
+                <Alert
+                  type="success" showIcon style={{ marginBottom: 16 }}
+                  message={`当前发货方式为"${shippingBasicInfo?.deliveryTypeList?.find(d => d.deliveryTypeValue === shippingConfig.deliveryType)?.deliveryTypeName || '非快递'}"，无需选择物流公司`}
+                />
+              )}
+
+              <div style={{ marginTop: 20, textAlign: 'right' }}>
+                <Space>
+                  <Button onClick={() => setShippingStep(0)}>上一步</Button>
+                  <Button type="primary" onClick={handleShippingStepNext}>下一步</Button>
+                </Space>
+              </div>
+            </div>
+          )}
+
+          {/* Step 2: 确认发货 */}
+          {shippingStep === 2 && (
+            <div>
+              <Alert
+                type="warning" showIcon style={{ marginBottom: 16 }}
+                message="请确认以下发货信息，提交后将创建发货单"
+              />
+
+              <Descriptions bordered column={2} size="small">
+                <Descriptions.Item label="店铺">{selectedOrders[0]?.shop_name || '-'}</Descriptions.Item>
+                <Descriptions.Item label="订单类型">
+                  <Tag color={selectedOrders[0]?.order_type === '急采' ? 'red' : 'blue'}>{selectedOrders[0]?.order_type || '-'}</Tag>
+                </Descriptions.Item>
+                <Descriptions.Item label="订单数量">{shippingOrderData.length} 个</Descriptions.Item>
+                <Descriptions.Item label="SKU总数">
+                  {shippingItemList.filter(i => i.deliveryQuantity > 0).length} / {shippingItemList.length} 个
+                  {shippingItemList.some(i => i.deliveryQuantity === 0) && <Tag color="orange" style={{ marginLeft: 4 }}>部分SKU跳过</Tag>}
+                </Descriptions.Item>
+                <Descriptions.Item label="发货总件数" span={2}>
+                  <span style={{ fontSize: 18, fontWeight: 'bold', color: '#1890ff' }}>
+                    {shippingItemList.reduce((s, i) => s + (i.deliveryQuantity || 0), 0)}
+                  </span> 件
+                  {shippingItemList.some(i => i.deliveryQuantity < i.orderQuantity) && (
+                    <span style={{ fontSize: 12, color: '#faad14', marginLeft: 8 }}>
+                      （下单总数 {shippingItemList.reduce((s, i) => s + i.orderQuantity, 0)} 件，部分发货）
+                    </span>
+                  )}
+                </Descriptions.Item>
+                <Descriptions.Item label="发货地址">
+                  {shippingBasicInfo?.addressList?.find(a => a.addressId === shippingConfig.addressId)?.addressName || '-'}
+                </Descriptions.Item>
+                <Descriptions.Item label="发货方式">
+                  {shippingBasicInfo?.deliveryTypeList?.find(d => d.deliveryTypeValue === shippingConfig.deliveryType)?.deliveryTypeName || '-'}
+                </Descriptions.Item>
+                <Descriptions.Item label="供应商仓库">
+                  {shippingBasicInfo?.supplierWarehouseList?.find(w => w.supplierWarehouseId === shippingConfig.supplierWarehouseId)?.warehouseName || '-'}
+                </Descriptions.Item>
+                {shippingConfig.deliveryType === 1 && (
+                  <Descriptions.Item label="快递公司">
+                    {shippingMethods.flatMap(m => m.expressInfos || []).find(e => e.companyCode === shippingConfig.expressId)?.companyName || shippingConfig.expressId || '-'}
+                  </Descriptions.Item>
+                )}
+                <Descriptions.Item label="包裹数量">{shippingConfig.packageNumber}</Descriptions.Item>
+                {shippingConfig.packageWeight && (
+                  <Descriptions.Item label="包裹重量">{shippingConfig.packageWeight} kg</Descriptions.Item>
+                )}
+                {shippingConfig.reserveParcelTime && (
+                  <Descriptions.Item label="预约取件时间" span={2}>{shippingConfig.reserveParcelTime}</Descriptions.Item>
+                )}
+              </Descriptions>
+
+              {warehouseInfo && (
+                <div style={{ marginTop: 16, padding: 12, background: '#f6ffed', border: '1px solid #b7eb8f', borderRadius: 4 }}>
+                  <div style={{ fontWeight: 500, marginBottom: 8, color: '#52c41a' }}>收货仓信息</div>
+                  <Descriptions size="small" column={1}>
+                    <Descriptions.Item label="仓库">{warehouseInfo.subWarehouseName || '-'}</Descriptions.Item>
+                    <Descriptions.Item label="地址">{warehouseInfo.warehouseAddress || '-'}</Descriptions.Item>
+                    <Descriptions.Item label="联系人">{warehouseInfo.warehouseContact || '-'}</Descriptions.Item>
+                    <Descriptions.Item label="电话">{warehouseInfo.warehousePhone || '-'}</Descriptions.Item>
+                  </Descriptions>
+                </div>
+              )}
+
+              <div style={{ marginTop: 20, textAlign: 'right' }}>
+                <Space>
+                  <Button onClick={() => setShippingStep(1)}>上一步</Button>
+                  <Popconfirm
+                    title="确定要提交发货吗？提交后将创建发货单。"
+                    onConfirm={handleConfirmShipping}
+                    okText="确定发货"
+                    cancelText="再想想"
+                  >
+                    <Button type="primary" danger loading={shippingLoading}>确认发货</Button>
+                  </Popconfirm>
+                </Space>
+              </div>
+            </div>
+          )}
+
+          {/* Step 3: 发货结果 */}
+          {shippingStep === 3 && (
+            <div>
+              <Result
+                status="success"
+                title="发货单创建成功"
+                subTitle={
+                  <div>
+                    <p>发货单号：<strong style={{ color: '#1890ff', fontSize: 16 }}>{deliveryResult?.deliveryCode || '-'}</strong></p>
+                    {deliveryResult?.expressCode && (
+                      <p>运单号：<strong>{deliveryResult.expressCode}</strong></p>
+                    )}
+                  </div>
+                }
+                extra={[
+                  <Button
+                    key="print"
+                    type="primary"
+                    icon={<PrinterOutlined />}
+                    onClick={handlePrintDeliveryLabel}
+                    loading={shippingLoading}
+                  >
+                    打印物流面单
+                  </Button>,
+                  <Button
+                    key="copy"
+                    icon={<CopyOutlined />}
+                    onClick={() => {
+                      const code = deliveryResult?.deliveryCode;
+                      if (code) {
+                        navigator.clipboard.writeText(code).then(() => message.success('发货单号已复制'));
+                      }
+                    }}
+                  >
+                    复制发货单号
+                  </Button>,
+                  <Button
+                    key="close"
+                    onClick={() => {
+                      setShippingModalVisible(false);
+                      resetShippingState();
+                      fetchOrders();
+                    }}
+                  >
+                    关闭
+                  </Button>
+                ]}
+              />
+            </div>
+          )}
+
+          {/* 初始加载状态 */}
+          {shippingStep === 0 && !shippingBasicInfo && !shippingLoading && (
+            <Empty description="正在加载发货配置..." />
+          )}
+        </Spin>
       </Modal>
 
     </div>

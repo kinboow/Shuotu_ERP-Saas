@@ -18,9 +18,11 @@ router.get('/', async (req, res) => {
         po.request_take_parcel_time as request_delivery_time,
         po.shop_id,
         po.raw_data,
+        COALESCE(s.shop_name, CONCAT('店铺', po.shop_id)) as shop_name,
         'shein' as platform
       FROM shipping_station ss
       LEFT JOIN shein_full_purchase_orders po ON ss.order_id = po.id
+      LEFT JOIN shein_full_shops s ON po.shop_id = s.id
       WHERE 1=1
     `;
 
@@ -69,7 +71,7 @@ router.get('/', async (req, res) => {
         warehouse_group: row.warehouse_name,
         request_delivery_time: row.request_delivery_time,
         shop_id: row.shop_id,
-        shop_name: rawData.supplierName || '-',
+        shop_name: row.shop_name || rawData.supplierName || '-',
         platform: row.platform,
         product_image: firstItem.imgPath || firstItem.skuImg || null,
         added_at: row.added_at

@@ -11,6 +11,7 @@ import {
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { stockOrdersAPI, sheinFullShippingAPI } from '../api';
+import { uploadPdfToOSS, proxyAndUploadToOSS } from '../utils/ossUpload';
 import JsBarcode from 'jsbarcode';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -527,12 +528,26 @@ function ShippingStation() {
         deliveryNo: deliveryResult.deliveryCode
       });
       if (res.data?.success && res.data.data?.url) {
-        window.open(res.data.data.url, '_blank');
-        message.success('面单已在新窗口打开');
+        const remoteUrl = res.data.data.url;
+        message.loading('正在将面单存储到OSS...', 0);
+
+        const fileName = `面单_${deliveryResult.deliveryCode}_${Date.now()}.pdf`;
+        const result = await proxyAndUploadToOSS(remoteUrl, fileName);
+
+        message.destroy();
+        if (result.success) {
+          window.open(result.url, '_blank');
+          if (result.isOss) {
+            message.success(`面单已存储到OSS，链接有效期至 ${result.expiresAt?.replace('T', ' ').slice(0, 19) || '2小时'}`);
+          } else {
+            message.success('面单已在新窗口打开');
+          }
+        }
       } else {
         message.error(res.data?.message || '获取面单失败');
       }
     } catch (error) {
+      message.destroy();
       message.error('打印面单失败: ' + (error.response?.data?.message || error.message));
     } finally {
       setShippingLoading(false);
@@ -904,68 +919,21 @@ function ShippingStation() {
       console.log('PDF生成成功，大小:', pdfBlob.size);
       const fileName = `拣货单_${new Date().toISOString().slice(0, 10)}_${Date.now()}.pdf`;
       
-      // 将Blob转为base64
-      const reader = new FileReader();
-      const base64Promise = new Promise((resolve) => {
-        reader.onloadend = () => {
-          const base64 = reader.result.split(',')[1];
-          resolve(base64);
-        };
-        reader.readAsDataURL(pdfBlob);
-      });
-      const base64Data = await base64Promise;
-      
-      // 尝试上传到OSS服务，自动匹配当前协议
-      let useOss = false;
-      const ossUrl = process.env.REACT_APP_OSS_URL || '';
-      try {
-        const healthCheck = await fetch(`${ossUrl}/health`, { 
-          method: 'GET',
-          signal: AbortSignal.timeout(2000) // 2秒超时
-        });
-        useOss = healthCheck.ok;
-      } catch (e) {
-        console.warn('OSS服务不可用，使用本地预览');
-        useOss = false;
-      }
-      
-      if (useOss) {
-        // 上传到OSS服务
-        const ossResponse = await fetch(`${ossUrl}/upload/buffer`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            buffer: base64Data,
-            fileName: fileName,
-            category: 'pdf',
-            expiresIn: 7200 // 2小时有效
-          })
-        });
-        
-        if (!ossResponse.ok) {
-          throw new Error(`OSS服务响应错误: ${ossResponse.status}`);
-        }
-        
-        const ossResult = await ossResponse.json();
-        
-        if (ossResult.success) {
-          window.open(ossResult.data.signedUrl, '_blank');
-          message.destroy();
-          message.success(`拣货单已生成，链接有效期至 ${ossResult.data.expiresAt.replace('T', ' ').slice(0, 19)}`);
+      message.destroy();
+      message.loading('正在上传到OSS...', 0);
+
+      const result = await uploadPdfToOSS(pdfBlob, fileName);
+
+      message.destroy();
+      if (result.success) {
+        window.open(result.url, '_blank');
+        if (result.isOss) {
+          message.success(`拣货单已生成，链接有效期至 ${result.expiresAt?.replace('T', ' ').slice(0, 19) || '2小时'}`);
         } else {
-          throw new Error(ossResult.message || 'OSS上传失败');
+          message.success('拣货单已生成（本地预览模式）');
         }
       } else {
-        // 回退到本地Blob URL预览
-        const pdfBlobWithType = new Blob([pdfBlob], { type: 'application/pdf' });
-        const pdfUrl = URL.createObjectURL(pdfBlobWithType);
-        window.open(pdfUrl, '_blank');
-        
-        // 2小时后释放URL
-        setTimeout(() => URL.revokeObjectURL(pdfUrl), 2 * 60 * 60 * 1000);
-        
-        message.destroy();
-        message.success('拣货单已生成（本地预览模式）');
+        message.error('拣货单上传失败');
       }
     } catch (error) {
       message.destroy();
@@ -1025,9 +993,19 @@ function ShippingStation() {
 
       if (response.data.success) {
         if (response.data.url) {
-          // 打开PDF链接
-          window.open(response.data.url, '_blank');
-          message.success('条码PDF已生成，请在新窗口中打印');
+          // 将SHEIN条码PDF存储到OSS
+          message.loading('正在将条码PDF存储到OSS...', 0);
+          const fileName = `官方条码_${new Date().toISOString().slice(0, 10)}_${Date.now()}.pdf`;
+          const ossResult = await proxyAndUploadToOSS(response.data.url, fileName);
+          message.destroy();
+          if (ossResult.success) {
+            window.open(ossResult.url, '_blank');
+            if (ossResult.isOss) {
+              message.success(`条码PDF已存储到OSS，链接有效期至 ${ossResult.expiresAt?.replace('T', ' ').slice(0, 19) || '2小时'}`);
+            } else {
+              message.success('条码PDF已生成，请在新窗口中打印');
+            }
+          }
         } else {
           message.warning('未获取到条码PDF链接');
         }
@@ -1259,17 +1237,30 @@ function ShippingStation() {
 
       const pdfDocGenerator = pdfMake.createPdf(docDefinition);
 
-      pdfDocGenerator.getBlob((blob) => {
-        message.destroy();
-        if (blob) {
-          const pdfUrl = URL.createObjectURL(blob);
-          window.open(pdfUrl, '_blank');
-          setTimeout(() => URL.revokeObjectURL(pdfUrl), 60 * 60 * 1000);
-          message.success('自定义条码已生成（本地预览）');
-        } else {
-          message.error('PDF生成失败');
-        }
+      const pdfBlob = await new Promise((resolve, reject) => {
+        pdfDocGenerator.getBlob((blob) => {
+          if (blob) resolve(blob);
+          else reject(new Error('PDF生成失败'));
+        });
       });
+
+      message.destroy();
+      message.loading('正在上传到OSS...', 0);
+
+      const fileName = `自定义条码_${new Date().toISOString().slice(0, 10)}_${Date.now()}.pdf`;
+      const result = await uploadPdfToOSS(pdfBlob, fileName);
+
+      message.destroy();
+      if (result.success) {
+        window.open(result.url, '_blank');
+        if (result.isOss) {
+          message.success(`自定义条码已生成，链接有效期至 ${result.expiresAt?.replace('T', ' ').slice(0, 19) || '2小时'}`);
+        } else {
+          message.success('自定义条码已生成（本地预览模式）');
+        }
+      } else {
+        message.error('PDF上传失败');
+      }
 
     } catch (error) {
       message.destroy();

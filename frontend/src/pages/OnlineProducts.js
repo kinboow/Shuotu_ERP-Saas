@@ -3,6 +3,7 @@ import { Table, Button, Space, Modal, Form, Input, Select, InputNumber, message,
 import { SyncOutlined, CheckCircleOutlined, LoadingOutlined } from '@ant-design/icons';
 import JsBarcode from 'jsbarcode';
 import pdfMake from 'pdfmake/build/pdfmake';
+import { uploadPdfToOSS } from '../utils/ossUpload';
 import chineseFontVfs from '../fonts/vfs_fonts';
 
 pdfMake.vfs = chineseFontVfs;
@@ -239,17 +240,30 @@ function OnlineProducts() {
         }
       };
 
-      pdfMake.createPdf(docDefinition).getBlob((blob) => {
-        message.destroy();
-        if (blob) {
-          const pdfUrl = URL.createObjectURL(blob);
-          window.open(pdfUrl, '_blank');
-          setTimeout(() => URL.revokeObjectURL(pdfUrl), 60 * 60 * 1000);
-          message.success('自定义条码已生成（本地预览）');
-        } else {
-          message.error('PDF生成失败');
-        }
+      const pdfBlob = await new Promise((resolve, reject) => {
+        pdfMake.createPdf(docDefinition).getBlob((blob) => {
+          if (blob) resolve(blob);
+          else reject(new Error('PDF生成失败'));
+        });
       });
+
+      message.destroy();
+      message.loading('正在上传到OSS...', 0);
+
+      const fileName = `在线商品条码_${new Date().toISOString().slice(0, 10)}_${Date.now()}.pdf`;
+      const result = await uploadPdfToOSS(pdfBlob, fileName);
+
+      message.destroy();
+      if (result.success) {
+        window.open(result.url, '_blank');
+        if (result.isOss) {
+          message.success(`自定义条码已生成，链接有效期至 ${result.expiresAt?.replace('T', ' ').slice(0, 19) || '2小时'}`);
+        } else {
+          message.success('自定义条码已生成（本地预览模式）');
+        }
+      } else {
+        message.error('PDF上传失败');
+      }
     } catch (error) {
       message.destroy();
       message.error('生成自定义条码失败: ' + error.message);

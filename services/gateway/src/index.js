@@ -116,6 +116,8 @@ app.use('/upload', proxy(services.oss));
 app.use('/file', proxy(services.oss));
 app.use('/uploads', proxy(services.oss, { '^/uploads': '/file' }));
 app.use('/api/proxy', proxy(services.oss, { '^/api/proxy': '/proxy' })); // 图片代理
+// OSS文件访问（通过/api前缀，绕过CRA historyApiFallback对浏览器导航的拦截）
+app.use('/api/oss-file', proxy(services.oss, { '^/api/oss-file': '/file' }));
 
 // ==================== Sync-Engine 路由 ====================
 app.use('/api/sync', optionalAuth, proxy(services.syncEngine));

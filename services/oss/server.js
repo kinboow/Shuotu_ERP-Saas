@@ -251,6 +251,74 @@ app.post('/upload/buffer', async (req, res) => {
 });
 
 /**
+ * 从远程URL下载文件并存储到OSS
+ * POST /upload/from-url
+ * Body: { url, fileName, category, expiresIn }
+ */
+app.post('/upload/from-url', async (req, res) => {
+  try {
+    const { url, fileName, category = 'pdf', expiresIn = DEFAULT_EXPIRES_IN } = req.body;
+
+    if (!url) {
+      return res.status(400).json({ success: false, message: '缺少url参数' });
+    }
+
+    if (!CATEGORIES.includes(category)) {
+      return res.status(400).json({ success: false, message: '无效的分类目录' });
+    }
+
+    // 下载远程文件
+    const fetchModule = await import('node-fetch');
+    const fetch = fetchModule.default || fetchModule;
+    const remoteResponse = await fetch(url, {
+      timeout: 30000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      }
+    });
+
+    if (!remoteResponse.ok) {
+      return res.status(502).json({ success: false, message: `远程文件下载失败: HTTP ${remoteResponse.status}` });
+    }
+
+    const fileBuffer = Buffer.from(await remoteResponse.arrayBuffer());
+    const fileId = generateFileId();
+    const ext = path.extname(fileName || '.pdf') || '.pdf';
+    const storedFileName = `${fileId}${ext}`;
+    const filePath = path.join(STORAGE_ROOT, category, storedFileName);
+
+    await fs.promises.writeFile(filePath, fileBuffer);
+
+    // 生成签名URL
+    const expires = Math.floor(Date.now() / 1000) + expiresIn;
+    const signature = generateSignature(fileId, expires);
+
+    const baseUrl = getBaseUrl(req);
+    const signedUrl = `${baseUrl}/file/${category}/${fileId}${ext}?expires=${expires}&signature=${signature}`;
+
+    console.log(`[OSS] 从远程URL下载并存储: ${url.substring(0, 80)}... -> ${storedFileName} (${fileBuffer.length} bytes)`);
+
+    res.json({
+      success: true,
+      data: {
+        fileId,
+        fileName: storedFileName,
+        originalName: fileName || `download${ext}`,
+        category,
+        size: fileBuffer.length,
+        signedUrl,
+        url: signedUrl,
+        expiresAt: formatDateTimeUTC8(expires * 1000),
+        createdAt: formatDateTimeUTC8(Date.now())
+      }
+    });
+  } catch (error) {
+    console.error('从URL下载上传失败:', error);
+    res.status(500).json({ success: false, message: '从URL下载上传失败: ' + error.message });
+  }
+});
+
+/**
  * 获取文件（带签名验证，永久文件分类无需签名）
  * GET /file/:category/:fileName
  */

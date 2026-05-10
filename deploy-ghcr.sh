@@ -29,6 +29,10 @@ if [[ -n "$IMAGE_TAG_OVERRIDE" ]]; then
   export IMAGE_TAG="$IMAGE_TAG_OVERRIDE"
 fi
 
+sql_escape() {
+  printf "%s" "$1" | sed "s/'/''/g"
+}
+
 wait_for_mysql() {
   local mysql_id
   local status
@@ -52,6 +56,20 @@ wait_for_mysql() {
 
   echo "[错误] MySQL 在预期时间内未就绪"
   exit 1
+}
+
+ensure_mysql_root_network_access() {
+  local escaped_password
+
+  escaped_password="$(sql_escape "$MYSQL_ROOT_PASSWORD")"
+
+  echo "[信息] 修复 MySQL root 容器网络访问授权..."
+  docker_compose exec -T mysql mysql -uroot "-p${MYSQL_ROOT_PASSWORD}" <<SQL
+CREATE USER IF NOT EXISTS 'root'@'%' IDENTIFIED WITH mysql_native_password BY '${escaped_password}';
+ALTER USER 'root'@'%' IDENTIFIED WITH mysql_native_password BY '${escaped_password}';
+GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' WITH GRANT OPTION;
+FLUSH PRIVILEGES;
+SQL
 }
 
 docker_compose() {
@@ -135,6 +153,7 @@ docker_login_with_retry
 echo "[1/5] 启动基础设施..."
 docker_compose up -d mysql redis rabbitmq
 wait_for_mysql
+ensure_mysql_root_network_access
 
 echo "[2/5] 拉取最新业务镜像..."
 pull_business_images

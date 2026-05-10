@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="$ROOT_DIR/docker/.env.ghcr"
 COMPOSE_FILE="$ROOT_DIR/docker-compose.ghcr.yml"
 IMAGE_TAG_OVERRIDE="${IMAGE_TAG_OVERRIDE:-}"
+GHCR_NAMESPACE_OVERRIDE="${GHCR_NAMESPACE_OVERRIDE:-}"
 GHCR_USERNAME="${GHCR_USERNAME:-}"
 GHCR_TOKEN="${GHCR_TOKEN:-}"
 SKIP_GHCR_LOGIN="${SKIP_GHCR_LOGIN:-0}"
@@ -19,6 +20,10 @@ fi
 set -a
 source "$ENV_FILE"
 set +a
+
+if [[ -n "$GHCR_NAMESPACE_OVERRIDE" ]]; then
+  export GHCR_NAMESPACE="$GHCR_NAMESPACE_OVERRIDE"
+fi
 
 if [[ -n "$IMAGE_TAG_OVERRIDE" ]]; then
   export IMAGE_TAG="$IMAGE_TAG_OVERRIDE"

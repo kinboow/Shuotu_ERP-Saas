@@ -51,3 +51,8 @@ export async function getProviderCredentials() {
   const response = await api.get('/platform/provider-credentials');
   return response.data;
 }
+
+ export async function updateProviderCredentials(platformName, payload) {
+  const response = await api.put(`/platform/provider-credentials/${platformName}`, payload);
+  return response.data;
+ }

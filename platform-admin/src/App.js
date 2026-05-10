@@ -8,8 +8,18 @@ import {
   getPlans,
   getPlatformUsers,
   getProviderCredentials,
+  updateProviderCredentials,
   login
 } from './api';
+
+ function normalizeProvider(provider) {
+  return {
+    ...provider,
+    status: Number(provider.status) === 1 ? 1 : 0,
+    sort_order: Number.isNaN(Number(provider.sort_order)) ? 0 : Number(provider.sort_order),
+    extra_config_text: provider.extra_config ? JSON.stringify(provider.extra_config, null, 2) : ''
+  };
+ }
 
 function ProtectedRoute({ children }) {
   const token = localStorage.getItem('platform_admin_token');
@@ -87,6 +97,8 @@ function DashboardPage() {
   const [activeTab, setActiveTab] = useState('overview');
   const [createForm, setCreateForm] = useState({ username: '', password: '', realName: '', email: '' });
   const [message, setMessage] = useState('');
+  const [providerMessage, setProviderMessage] = useState('');
+  const [savingProvider, setSavingProvider] = useState('');
 
   const loadAll = async () => {
     const [currentUserResult, overviewResult, usersResult, enterprisesResult, plansResult, providersResult] = await Promise.all([
@@ -114,7 +126,7 @@ function DashboardPage() {
       setPlans(plansResult.data);
     }
     if (providersResult.success) {
-      setProviders(providersResult.data);
+      setProviders((providersResult.data || []).map(normalizeProvider));
     }
   };
 
@@ -145,6 +157,51 @@ function DashboardPage() {
       if (usersResult.success) {
         setPlatformUsers(usersResult.data);
       }
+    }
+  };
+
+  const updateProviderField = (platformName, field, value) => {
+    setProviders((current) => current.map((provider) => (
+      provider.platform_name === platformName
+        ? { ...provider, [field]: value }
+        : provider
+    )));
+  };
+
+  const handleSaveProvider = async (platformName) => {
+    const provider = providers.find((item) => item.platform_name === platformName);
+    if (!provider) {
+      return;
+    }
+
+    setProviderMessage('');
+    setSavingProvider(platformName);
+
+    try {
+      const result = await updateProviderCredentials(platformName, {
+        platformDisplayName: provider.platform_display_name,
+        baseUrl: provider.base_url,
+        authUrl: provider.auth_url,
+        callbackUrl: provider.callback_url,
+        appKey: provider.app_key,
+        appSecret: provider.app_secret,
+        extraConfig: provider.extra_config_text,
+        status: provider.status,
+        sortOrder: provider.sort_order,
+        remark: provider.remark
+      });
+
+      setProviderMessage(result.message || (result.success ? '保存成功' : '保存失败'));
+
+      if (result.success && result.data) {
+        setProviders((current) => current.map((item) => (
+          item.platform_name === platformName ? normalizeProvider(result.data) : item
+        )));
+      }
+    } catch (error) {
+      setProviderMessage(error.response?.data?.message || error.message || '保存失败');
+    } finally {
+      setSavingProvider('');
     }
   };
 
@@ -303,27 +360,119 @@ function DashboardPage() {
           {activeTab === 'providers' ? (
             <div className="panel-card">
               <h3>全局平台配置</h3>
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>平台编码</th>
-                      <th>平台名称</th>
-                      <th>状态</th>
-                      <th>最后更新</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {providers.map((provider) => (
-                      <tr key={provider.id}>
-                        <td>{provider.provider_code}</td>
-                        <td>{provider.provider_name}</td>
-                        <td>{provider.status}</td>
-                        <td>{provider.updated_at || '-'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="muted" style={{ marginBottom: 16 }}>
+                这里编辑的是业务系统真实生效的全局平台配置，对应数据库表 `platform_configs` 的 `enterprise_id = 0` 记录。
+              </div>
+              {providerMessage ? <div className="muted" style={{ marginBottom: 12 }}>{providerMessage}</div> : null}
+              <div className="provider-grid">
+                {providers.map((provider) => (
+                  <div className="provider-card" key={provider.platform_name || provider.id}>
+                    <div className="provider-card-header">
+                      <div>
+                        <h4>{provider.platform_display_name || provider.platform_name}</h4>
+                        <div className="muted">平台编码：{provider.platform_name}</div>
+                      </div>
+                      <label className="checkbox-row">
+                        <input
+                          type="checkbox"
+                          checked={Number(provider.status) === 1}
+                          onChange={(event) => updateProviderField(provider.platform_name, 'status', event.target.checked ? 1 : 0)}
+                        />
+                        启用
+                      </label>
+                    </div>
+
+                    <div className="provider-form-grid">
+                      <div className="form-group">
+                        <label>平台名称</label>
+                        <input
+                          className="form-input"
+                          value={provider.platform_display_name || ''}
+                          onChange={(event) => updateProviderField(provider.platform_name, 'platform_display_name', event.target.value)}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>排序</label>
+                        <input
+                          className="form-input"
+                          type="number"
+                          value={provider.sort_order ?? 0}
+                          onChange={(event) => updateProviderField(provider.platform_name, 'sort_order', event.target.value)}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>Base URL</label>
+                        <input
+                          className="form-input"
+                          value={provider.base_url || ''}
+                          onChange={(event) => updateProviderField(provider.platform_name, 'base_url', event.target.value)}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>Auth URL</label>
+                        <input
+                          className="form-input"
+                          value={provider.auth_url || ''}
+                          onChange={(event) => updateProviderField(provider.platform_name, 'auth_url', event.target.value)}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>Callback URL</label>
+                        <input
+                          className="form-input"
+                          value={provider.callback_url || ''}
+                          onChange={(event) => updateProviderField(provider.platform_name, 'callback_url', event.target.value)}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>App Key / API Key</label>
+                        <input
+                          className="form-input"
+                          value={provider.app_key || ''}
+                          onChange={(event) => updateProviderField(provider.platform_name, 'app_key', event.target.value)}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>App Secret / API Secret</label>
+                        <input
+                          className="form-input"
+                          type="password"
+                          value={provider.app_secret || ''}
+                          onChange={(event) => updateProviderField(provider.platform_name, 'app_secret', event.target.value)}
+                        />
+                      </div>
+                      <div className="form-group provider-form-grid-span-2">
+                        <label>备注</label>
+                        <input
+                          className="form-input"
+                          value={provider.remark || ''}
+                          onChange={(event) => updateProviderField(provider.platform_name, 'remark', event.target.value)}
+                        />
+                      </div>
+                      <div className="form-group provider-form-grid-span-2">
+                        <label>Extra Config (JSON)</label>
+                        <textarea
+                          className="form-input form-textarea"
+                          value={provider.extra_config_text || ''}
+                          onChange={(event) => updateProviderField(provider.platform_name, 'extra_config_text', event.target.value)}
+                          placeholder="例如：{&quot;timeout&quot;:30000,&quot;region&quot;:&quot;CN&quot;}"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="provider-card-footer">
+                      <div className="muted">最后更新：{provider.updated_at || '-'}</div>
+                      <button
+                        className="primary-button provider-save-button"
+                        type="button"
+                        onClick={() => handleSaveProvider(provider.platform_name)}
+                        disabled={savingProvider === provider.platform_name}
+                      >
+                        {savingProvider === provider.platform_name ? '保存中...' : '保存配置'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           ) : null}

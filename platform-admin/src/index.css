@@ -197,3 +197,87 @@ input {
 .muted {
   color: #6b7280;
 }
+
+ .provider-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: 16px;
+ }
+
+ .provider-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  padding: 20px;
+  background: #f9fafb;
+ }
+
+ .provider-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+ }
+
+ .provider-card-header h4 {
+  margin: 0 0 6px;
+ }
+
+ .checkbox-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+ }
+
+ .provider-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+ }
+
+ .provider-form-grid-span-2 {
+  grid-column: span 2;
+ }
+
+ .form-textarea {
+  min-height: 140px;
+  resize: vertical;
+  font-family: Consolas, 'Courier New', monospace;
+ }
+
+ .provider-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+ }
+
+ .provider-save-button {
+  width: auto;
+  min-width: 120px;
+ }
+
+ @media (max-width: 960px) {
+  .provider-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .provider-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .provider-form-grid-span-2 {
+    grid-column: span 1;
+  }
+
+  .provider-card-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .provider-save-button {
+    width: 100%;
+  }
+ }

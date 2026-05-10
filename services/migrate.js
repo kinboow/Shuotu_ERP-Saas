@@ -12,6 +12,7 @@ process.env.DB_AUTO_SYNC = process.env.DB_AUTO_SYNC || 'true';
 const { syncDatabase: syncMisc } = require('./misc/src/models');
 const {
   ensureTenantTables,
+  ensureLegacyAuthSchema,
   ensureBusinessTenantColumns
 } = require('./misc/src/services/enterprise-context');
 
@@ -66,6 +67,7 @@ async function main() {
 
   await runStep('Misc Models & Enterprise Schema', async () => {
     await syncMisc();
+    await ensureLegacyAuthSchema();
     await ensureTenantTables();
     await ensureBusinessTenantColumns();
   });

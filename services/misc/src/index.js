@@ -11,7 +11,7 @@ const cors = require('cors');
 const { syncDatabase } = require('./models');
 const { initRedis } = require('./services/redis');
 const { initMQ, closeMQ } = require('./services/mq');
-const { ensureTenantTables, ensureBusinessTenantColumns, runWithRequestContext } = require('./services/enterprise-context');
+const { ensureTenantTables, ensureLegacyAuthSchema, ensureBusinessTenantColumns, runWithRequestContext } = require('./services/enterprise-context');
 const authRouter = require('./routes/auth');
 const pdaAuthRouter = require('./routes/pda-auth');
 const usersRouter = require('./routes/users');
@@ -70,6 +70,7 @@ app.use((err, req, res, next) => {
 
 const start = async () => {
   await syncDatabase();
+  await ensureLegacyAuthSchema();
   await ensureTenantTables();
   await ensureBusinessTenantColumns();
   

@@ -4,6 +4,7 @@ const { sequelize } = require('../models');
 
 const requestContextStorage = new AsyncLocalStorage();
 let businessTenantColumnsPromise = null;
+let legacyAuthSchemaPromise = null;
 
 const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS enterprises (
@@ -78,6 +79,101 @@ const schemaStatements = [
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_enterprise_subscriptions_enterprise (enterprise_id),
     INDEX idx_enterprise_subscriptions_status (status)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
+];
+
+const legacyAuthSchemaStatements = [
+  `CREATE TABLE IF NOT EXISTS roles (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    role_code VARCHAR(50) UNIQUE NOT NULL,
+    role_name VARCHAR(100) NOT NULL,
+    description TEXT,
+    is_system TINYINT DEFAULT 0,
+    status TINYINT DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_role_code (role_code),
+    INDEX idx_status (status)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  `CREATE TABLE IF NOT EXISTS permissions (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    permission_code VARCHAR(100) UNIQUE NOT NULL,
+    permission_name VARCHAR(100) NOT NULL,
+    module VARCHAR(50) NOT NULL,
+    description TEXT,
+    sort_order INT DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_module (module),
+    INDEX idx_permission_code (permission_code)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  `CREATE TABLE IF NOT EXISTS role_permissions (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    role_id INT NOT NULL,
+    permission_id INT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_role_permission (role_id, permission_id),
+    FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
+    FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  `CREATE TABLE IF NOT EXISTS user_tokens (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    token_hash VARCHAR(64) NOT NULL,
+    device_type VARCHAR(50),
+    device_info VARCHAR(255),
+    ip_address VARCHAR(50),
+    user_agent TEXT,
+    expires_at DATETIME NOT NULL,
+    last_used_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_user_id (user_id),
+    INDEX idx_token_hash (token_hash),
+    INDEX idx_expires_at (expires_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  `CREATE TABLE IF NOT EXISTS operation_logs (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT,
+    username VARCHAR(50),
+    real_name VARCHAR(50),
+    module VARCHAR(50) NOT NULL,
+    action VARCHAR(50) NOT NULL,
+    target_type VARCHAR(50),
+    target_id VARCHAR(100),
+    description TEXT,
+    request_method VARCHAR(10),
+    request_url VARCHAR(500),
+    request_params JSON,
+    response_code INT,
+    response_data JSON,
+    ip_address VARCHAR(50),
+    user_agent TEXT,
+    duration INT,
+    status VARCHAR(20) DEFAULT 'SUCCESS',
+    error_message TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_user_id (user_id),
+    INDEX idx_module (module),
+    INDEX idx_action (action),
+    INDEX idx_target (target_type, target_id),
+    INDEX idx_status (status),
+    INDEX idx_created_at (created_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  `CREATE TABLE IF NOT EXISTS login_logs (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT,
+    username VARCHAR(50),
+    login_type VARCHAR(20) DEFAULT 'password',
+    device_type VARCHAR(50),
+    ip_address VARCHAR(50),
+    location VARCHAR(200),
+    user_agent TEXT,
+    status VARCHAR(20) DEFAULT 'SUCCESS',
+    fail_reason VARCHAR(200),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_user_id (user_id),
+    INDEX idx_username (username),
+    INDEX idx_status (status),
+    INDEX idx_created_at (created_at)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
 ];
 
@@ -214,6 +310,76 @@ async function ensureBusinessTenantColumns() {
   });
 
   return businessTenantColumnsPromise;
+}
+
+async function ensureLegacyAuthSchema() {
+  if (legacyAuthSchemaPromise) {
+    return legacyAuthSchemaPromise;
+  }
+
+  legacyAuthSchemaPromise = (async () => {
+    for (const statement of legacyAuthSchemaStatements) {
+      await sequelize.query(statement);
+    }
+
+    await sequelize.query(`
+      INSERT IGNORE INTO roles (role_code, role_name, description, is_system) VALUES
+      ('super_admin', '超级管理员', '拥有所有权限，不可删除', 1),
+      ('admin', '管理员', '拥有大部分管理权限', 1),
+      ('operator', '操作员', '日常操作权限', 0),
+      ('viewer', '查看者', '只读权限', 0)
+    `);
+
+    await sequelize.query(`
+      INSERT IGNORE INTO permissions (permission_code, permission_name, module, sort_order) VALUES
+      ('system:enterprise:view', '查看企业信息', 'system', 1),
+      ('system:enterprise:edit', '编辑企业信息', 'system', 2),
+      ('system:user:view', '查看用户列表', 'system', 3),
+      ('system:user:create', '创建用户', 'system', 4),
+      ('system:user:edit', '编辑用户', 'system', 5),
+      ('system:user:delete', '删除用户', 'system', 6),
+      ('system:role:view', '查看角色列表', 'system', 7),
+      ('system:role:create', '创建角色', 'system', 8),
+      ('system:role:edit', '编辑角色', 'system', 9),
+      ('system:role:delete', '删除角色', 'system', 10),
+      ('system:log:view', '查看操作日志', 'system', 11),
+      ('product:view', '查看商品', 'product', 1),
+      ('product:create', '创建商品', 'product', 2),
+      ('product:edit', '编辑商品', 'product', 3),
+      ('product:delete', '删除商品', 'product', 4),
+      ('product:publish', '发布商品', 'product', 5),
+      ('order:view', '查看订单', 'order', 1),
+      ('order:edit', '编辑订单', 'order', 2),
+      ('order:ship', '发货操作', 'order', 3),
+      ('order:cancel', '取消订单', 'order', 4),
+      ('purchase:view', '查看采购单', 'purchase', 1),
+      ('purchase:create', '创建采购单', 'purchase', 2),
+      ('purchase:edit', '编辑采购单', 'purchase', 3),
+      ('purchase:print', '打印采购单', 'purchase', 4),
+      ('inventory:view', '查看库存', 'inventory', 1),
+      ('inventory:edit', '编辑库存', 'inventory', 2),
+      ('inventory:adjust', '库存调整', 'inventory', 3),
+      ('finance:view', '查看财务', 'finance', 1),
+      ('finance:edit', '编辑财务', 'finance', 2),
+      ('finance:withdraw', '提现操作', 'finance', 3),
+      ('platform:view', '查看平台配置', 'platform', 1),
+      ('platform:edit', '编辑平台配置', 'platform', 2),
+      ('platform:sync', '同步数据', 'platform', 3)
+    `);
+
+    await sequelize.query(`
+      INSERT IGNORE INTO role_permissions (role_id, permission_id)
+      SELECT r.id, p.id
+      FROM roles r
+      JOIN permissions p
+      WHERE r.role_code IN ('super_admin', 'admin')
+    `);
+  })().catch((error) => {
+    legacyAuthSchemaPromise = null;
+    throw error;
+  });
+
+  return legacyAuthSchemaPromise;
 }
 
 function generateEnterpriseCode(companyName = '') {
@@ -821,6 +987,7 @@ async function rejectJoinRequest({ reviewerUserId, requestId }) {
 
 module.exports = {
   ensureTenantTables,
+  ensureLegacyAuthSchema,
   ensureBusinessTenantColumns,
   getEnterpriseById,
   getEnterpriseByCode,

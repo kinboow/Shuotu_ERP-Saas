@@ -98,7 +98,7 @@ jobs:
           username: ${{ secrets.PROD_USER }}
           key: ${{ secrets.PROD_SSH_KEY }}
           source: .deploy-cache/${{ steps.vars.outputs.archive_name }}
-          target: ${{ secrets.PROD_APP_DIR }}/.deploy-cache
+          target: ${{ secrets.PROD_APP_DIR }}
 
       - name: Upload deploy support files
         uses: appleboy/scp-action@v0.1.7
@@ -121,6 +121,17 @@ jobs:
             cd "${{ secrets.PROD_APP_DIR }}"
             chmod +x deploy-ghcr.sh
             ARCHIVE_PATH="${{ secrets.PROD_APP_DIR }}/.deploy-cache/${{ steps.vars.outputs.archive_name }}"
+            if [ ! -f "$ARCHIVE_PATH" ]; then
+              ALT_ARCHIVE_PATH="${{ secrets.PROD_APP_DIR }}/${{ steps.vars.outputs.archive_name }}"
+              if [ -f "$ALT_ARCHIVE_PATH" ]; then
+                ARCHIVE_PATH="$ALT_ARCHIVE_PATH"
+              fi
+            fi
+            if [ ! -f "$ARCHIVE_PATH" ]; then
+              echo "[错误] 未找到镜像归档: ${{ steps.vars.outputs.archive_name }}"
+              find "${{ secrets.PROD_APP_DIR }}" -maxdepth 3 -name "${{ steps.vars.outputs.archive_name }}" -print || true
+              exit 1
+            fi
             gunzip -c "$ARCHIVE_PATH" | docker load
             rm -f "$ARCHIVE_PATH"
             SKIP_GHCR_LOGIN=1 \

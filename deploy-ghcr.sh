@@ -10,6 +10,7 @@ GHCR_USERNAME="${GHCR_USERNAME:-}"
 GHCR_TOKEN="${GHCR_TOKEN:-}"
 SKIP_GHCR_LOGIN="${SKIP_GHCR_LOGIN:-0}"
 SKIP_IMAGE_PULL="${SKIP_IMAGE_PULL:-0}"
+RESET_MYSQL_ON_AUTH_FAILURE="${RESET_MYSQL_ON_AUTH_FAILURE:-0}"
 DEPLOY_SCRIPT_VERSION="2026-05-10-mysql-runtime-password-fix"
 
 if [[ ! -f "$ENV_FILE" ]]; then
@@ -80,7 +81,21 @@ get_mysql_runtime_password() {
 can_login_mysql_root() {
   local password="$1"
 
-  docker_compose exec -T mysql mysqladmin -uroot "-p${password}" ping --silent >/dev/null 2>&1
+  docker_compose exec -T mysql mysql -uroot "-p${password}" -e "SELECT 1" >/dev/null 2>&1
+}
+
+reset_mysql_volume() {
+  local volume_name
+
+  volume_name="${COMPOSE_PROJECT_NAME:-shuotu-erp}_mysql-data"
+
+  echo "[警告] RESET_MYSQL_ON_AUTH_FAILURE=1，开始重建 MySQL 数据卷: ${volume_name}"
+  echo "[警告] 这会清空当前 MySQL 数据，仅适合首次部署或确认可重建的环境"
+  docker_compose stop mysql >/dev/null 2>&1 || true
+  docker_compose rm -f mysql >/dev/null 2>&1 || true
+  docker volume rm "$volume_name" >/dev/null 2>&1 || true
+  docker_compose up -d mysql
+  wait_for_mysql
 }
 
 ensure_mysql_root_network_access() {
@@ -99,9 +114,20 @@ ensure_mysql_root_network_access() {
       login_password="$runtime_password"
       needs_mysql_recreate=1
     else
+      if [[ "$RESET_MYSQL_ON_AUTH_FAILURE" == "1" ]]; then
+        reset_mysql_volume
+        runtime_password="$(get_mysql_runtime_password)"
+        login_password="$MYSQL_ROOT_PASSWORD"
+        if ! can_login_mysql_root "$login_password"; then
+          echo "[错误] MySQL 数据卷重建后仍无法使用当前 .env 中的 MYSQL_ROOT_PASSWORD 登录"
+          exit 1
+        fi
+      else
       echo "[错误] 无法使用当前 .env 中的 MYSQL_ROOT_PASSWORD 登录 MySQL，也无法使用运行中容器的密码回退登录"
       echo "[提示] 请检查服务器 docker/.env.ghcr 中的 MYSQL_ROOT_PASSWORD，或手动重建 MySQL 容器/数据卷"
+      echo "[提示] 如果这是首次部署且可以清空数据库，请用 RESET_MYSQL_ON_AUTH_FAILURE=1 重新运行部署"
       exit 1
+      fi
     fi
   fi
 

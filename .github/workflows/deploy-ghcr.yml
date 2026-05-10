@@ -11,6 +11,10 @@ on:
         description: Image tag to deploy
         required: false
         default: latest
+      reset_mysql_on_auth_failure:
+        description: Reset MySQL volume if root auth cannot be repaired. This deletes MySQL data.
+        required: false
+        default: "false"
   workflow_run:
     workflows:
       - Build And Push GHCR Images
@@ -136,6 +140,7 @@ jobs:
             rm -f "$ARCHIVE_PATH"
             SKIP_GHCR_LOGIN=1 \
             SKIP_IMAGE_PULL=1 \
+            RESET_MYSQL_ON_AUTH_FAILURE="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.reset_mysql_on_auth_failure == 'true' && '1' || '0' }}" \
             GHCR_NAMESPACE_OVERRIDE="ghcr.io/${{ steps.vars.outputs.owner_lc }}" \
             IMAGE_TAG_OVERRIDE="${{ steps.tag.outputs.image_tag }}" \
             ./deploy-ghcr.sh

@@ -7,6 +7,7 @@ const router = express.Router();
 const SheinFullAdapter = require('../adapters/shein-full.adapter');
 const SheinFullAuthService = require('../services/shein-full-auth.service');
 const SheinFullShopService = require('../services/shein-full-shop.service');
+const syncService = require('../services/shein-full-sync.service');
 const { sequelize } = require('../models');
 const { QueryTypes } = require('sequelize');
 const { getRequiredEnterpriseIdFromRequest } = require('../services/tenant-context.service');

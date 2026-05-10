@@ -182,7 +182,6 @@ function DashboardPage() {
         platformDisplayName: provider.platform_display_name,
         baseUrl: provider.base_url,
         authUrl: provider.auth_url,
-        callbackUrl: provider.callback_url,
         appKey: provider.app_key,
         appSecret: provider.app_secret,
         extraConfig: provider.extra_config_text,
@@ -414,14 +413,6 @@ function DashboardPage() {
                           className="form-input"
                           value={provider.auth_url || ''}
                           onChange={(event) => updateProviderField(provider.platform_name, 'auth_url', event.target.value)}
-                        />
-                      </div>
-                      <div className="form-group">
-                        <label>Callback URL</label>
-                        <input
-                          className="form-input"
-                          value={provider.callback_url || ''}
-                          onChange={(event) => updateProviderField(provider.platform_name, 'callback_url', event.target.value)}
                         />
                       </div>
                       <div className="form-group">

@@ -58,18 +58,72 @@ wait_for_mysql() {
   exit 1
 }
 
-ensure_mysql_root_network_access() {
-  local escaped_password
+get_mysql_container_id() {
+  docker_compose ps -q mysql
+}
 
+get_mysql_runtime_password() {
+  local mysql_id
+
+  mysql_id="$(get_mysql_container_id)"
+  if [[ -z "$mysql_id" ]]; then
+    return 0
+  fi
+
+  docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$mysql_id" \
+    | grep '^MYSQL_ROOT_PASSWORD=' \
+    | head -n 1 \
+    | cut -d= -f2- || true
+}
+
+can_login_mysql_root() {
+  local password="$1"
+
+  docker_compose exec -T mysql mysqladmin -uroot "-p${password}" ping --silent >/dev/null 2>&1
+}
+
+ensure_mysql_root_network_access() {
+  local login_password
+  local escaped_password
+  local runtime_password
+  local needs_mysql_recreate=0
+
+  login_password="$MYSQL_ROOT_PASSWORD"
+  runtime_password="$(get_mysql_runtime_password)"
   escaped_password="$(sql_escape "$MYSQL_ROOT_PASSWORD")"
 
+  if ! can_login_mysql_root "$login_password"; then
+    if [[ -n "$runtime_password" && "$runtime_password" != "$login_password" ]] && can_login_mysql_root "$runtime_password"; then
+      echo "[警告] 当前 .env 中的 MYSQL_ROOT_PASSWORD 与运行中 MySQL 容器不一致，先使用容器现有密码修复授权并同步密码"
+      login_password="$runtime_password"
+      needs_mysql_recreate=1
+    else
+      echo "[错误] 无法使用当前 .env 中的 MYSQL_ROOT_PASSWORD 登录 MySQL，也无法使用运行中容器的密码回退登录"
+      echo "[提示] 请检查服务器 docker/.env.ghcr 中的 MYSQL_ROOT_PASSWORD，或手动重建 MySQL 容器/数据卷"
+      exit 1
+    fi
+  fi
+
+  if [[ -n "$runtime_password" && "$runtime_password" != "$MYSQL_ROOT_PASSWORD" ]]; then
+    needs_mysql_recreate=1
+  fi
+
   echo "[信息] 修复 MySQL root 容器网络访问授权..."
-  docker_compose exec -T mysql mysql -uroot "-p${MYSQL_ROOT_PASSWORD}" <<SQL
+  docker_compose exec -T mysql mysql -uroot "-p${login_password}" <<SQL
+CREATE USER IF NOT EXISTS 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '${escaped_password}';
+ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '${escaped_password}';
 CREATE USER IF NOT EXISTS 'root'@'%' IDENTIFIED WITH mysql_native_password BY '${escaped_password}';
 ALTER USER 'root'@'%' IDENTIFIED WITH mysql_native_password BY '${escaped_password}';
+GRANT ALL PRIVILEGES ON *.* TO 'root'@'localhost' WITH GRANT OPTION;
 GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' WITH GRANT OPTION;
 FLUSH PRIVILEGES;
 SQL
+
+  if [[ "$needs_mysql_recreate" == "1" ]]; then
+    echo "[信息] 重新创建 MySQL 容器以同步最新环境变量..."
+    docker_compose up -d --no-deps --force-recreate mysql
+    wait_for_mysql
+  fi
 }
 
 docker_compose() {

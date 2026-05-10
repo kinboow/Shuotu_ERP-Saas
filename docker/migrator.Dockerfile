@@ -30,6 +30,7 @@ COPY services/oms /app/services/oms
 COPY services/wms /app/services/wms
 COPY services/pms /app/services/pms
 COPY services/platform-admin /app/services/platform-admin
+COPY services/database /app/services/database
 COPY services/migrate.js /app/services/migrate.js
 
 CMD ["node", "services/migrate.js"]

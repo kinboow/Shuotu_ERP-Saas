@@ -40,6 +40,56 @@ const getOssUrl = () => {
   return '';
 };
 
+const pageStyle = {
+  minHeight: '100vh',
+  background: '#f0f2f5',
+  padding: 24
+};
+
+const pageContainerStyle = {
+  maxWidth: 1080,
+  margin: '0 auto'
+};
+
+const mainCardStyle = {
+  borderRadius: 8,
+  boxShadow: '0 1px 2px rgba(0, 0, 0, 0.04)'
+};
+
+const contentCardStyle = {
+  background: '#fff',
+  borderRadius: 8,
+  border: '1px solid #f0f0f0'
+};
+
+const sectionHeaderStyle = {
+  padding: '16px 24px',
+  margin: '-32px -32px 24px',
+  borderBottom: '1px solid #f0f0f0',
+  background: '#fff'
+};
+
+const stepPanelStyle = {
+  background: '#fafafa',
+  border: '1px solid #f0f0f0',
+  borderRadius: 8,
+  padding: 16,
+  marginBottom: 24
+};
+
+const actionBarStyle = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  marginTop: 24,
+  paddingTop: 16,
+  borderTop: '1px solid #f0f0f0'
+};
+
+const primaryActionBarStyle = {
+  ...actionBarStyle,
+  justifyContent: 'flex-end'
+};
+
 function EnterpriseOnboarding() {
   const navigate = useNavigate();
   const [mode, setMode] = useState('create');
@@ -129,10 +179,29 @@ function EnterpriseOnboarding() {
 
     setSubmitting(true);
     try {
+      const formValues = {
+        ...values,
+        ...createForm.getFieldsValue(true)
+      };
+      const companyName = String(formValues.companyName || '').trim();
+
+      if (!companyName) {
+        setCurrentStep(2);
+        createForm.setFields([
+          {
+            name: 'companyName',
+            errors: ['请输入企业名称']
+          }
+        ]);
+        message.error('请输入企业名称');
+        return;
+      }
+
       await persistRealName();
 
       const response = await enterpriseAPI.create({
-        ...values,
+        ...formValues,
+        companyName,
         logoUrl
       });
 
@@ -282,7 +351,7 @@ function EnterpriseOnboarding() {
   const renderStepContent = () => {
     if (currentStep === 0) {
       return (
-        <Card bordered={false} style={{ background: '#fafcff', borderRadius: 16 }}>
+        <Card bordered={false} style={contentCardStyle}>
           <Space direction="vertical" size={8} style={{ width: '100%' }}>
             <Title level={4} style={{ marginBottom: 0 }}>先完善你的账户信息</Title>
             <Paragraph type="secondary" style={{ marginBottom: 0 }}>
@@ -310,7 +379,7 @@ function EnterpriseOnboarding() {
 
     if (currentStep === 1) {
       return (
-        <Card bordered={false} style={{ background: '#fafcff', borderRadius: 16 }}>
+        <Card bordered={false} style={contentCardStyle}>
           <Space direction="vertical" size={8} style={{ width: '100%', marginBottom: 24 }}>
             <Title level={4} style={{ marginBottom: 0 }}>选择企业归属方式</Title>
             <Paragraph type="secondary" style={{ marginBottom: 0 }}>
@@ -328,7 +397,7 @@ function EnterpriseOnboarding() {
                 size="small"
                 hoverable
                 onClick={() => setMode('create')}
-                style={{ borderColor: mode === 'create' ? '#1677ff' : '#f0f0f0' }}
+                style={{ borderColor: mode === 'create' ? '#1677ff' : '#f0f0f0', background: mode === 'create' ? '#f0f7ff' : '#fff' }}
               >
                 <Radio value="create">创建企业</Radio>
                 <Paragraph type="secondary" style={{ margin: '8px 0 0 24px' }}>
@@ -339,7 +408,7 @@ function EnterpriseOnboarding() {
                 size="small"
                 hoverable
                 onClick={() => setMode('join')}
-                style={{ borderColor: mode === 'join' ? '#1677ff' : '#f0f0f0' }}
+                style={{ borderColor: mode === 'join' ? '#1677ff' : '#f0f0f0', background: mode === 'join' ? '#f0f7ff' : '#fff' }}
               >
                 <Radio value="join">加入企业</Radio>
                 <Paragraph type="secondary" style={{ margin: '8px 0 0 24px' }}>
@@ -354,12 +423,12 @@ function EnterpriseOnboarding() {
 
     if (mode === 'create' && currentStep === 2) {
       return (
-        <Card bordered={false} style={{ background: '#fafcff', borderRadius: 16 }}>
-          <Form form={createForm} layout="vertical">
+        <Card bordered={false} style={contentCardStyle}>
+          <Form form={createForm} layout="vertical" preserve>
             <Row gutter={24}>
               <Col span={24}>
-                <div style={{ textAlign: 'center', marginBottom: 24 }}>
-                  <Avatar size={96} src={logoUrl} icon={<BankOutlined />} style={{ backgroundColor: '#1677ff' }} />
+                <div style={{ ...stepPanelStyle, textAlign: 'center' }}>
+                  <Avatar size={88} src={logoUrl} icon={<BankOutlined />} style={{ backgroundColor: '#1677ff' }} />
                   <div style={{ marginTop: 12 }}>
                     <Upload showUploadList={false} accept="image/*" beforeUpload={handleLogoUpload}>
                       <Button icon={uploading ? <LoadingOutlined /> : <UploadOutlined />} loading={uploading}>
@@ -373,7 +442,7 @@ function EnterpriseOnboarding() {
 
             <Row gutter={24}>
               <Col xs={24} md={12}>
-                <Form.Item name="companyName" label="企业名称" rules={[{ required: true, message: '请输入企业名称' }]}>
+                <Form.Item name="companyName" label="企业名称" rules={[{ required: true, whitespace: true, message: '请输入企业名称' }]}>
                   <Input prefix={<BankOutlined />} placeholder="请输入企业全称" />
                 </Form.Item>
               </Col>
@@ -390,8 +459,8 @@ function EnterpriseOnboarding() {
 
     if (mode === 'create' && currentStep === 3) {
       return (
-        <Card bordered={false} style={{ background: '#fafcff', borderRadius: 16 }}>
-          <Form form={createForm} layout="vertical" onFinish={handleCreateEnterprise}>
+        <Card bordered={false} style={contentCardStyle}>
+          <Form form={createForm} layout="vertical" preserve onFinish={handleCreateEnterprise}>
             <Row gutter={24}>
               <Col xs={24} md={12}>
                 <Form.Item name="contactPerson" label="联系人">
@@ -455,7 +524,7 @@ function EnterpriseOnboarding() {
     }
 
     return (
-      <Card bordered={false} style={{ background: '#fafcff', borderRadius: 16 }}>
+      <Card bordered={false} style={contentCardStyle}>
         <Form form={joinForm} layout="vertical" onFinish={handleJoinEnterprise}>
           <Form.Item
             name="enterpriseCode"
@@ -483,7 +552,7 @@ function EnterpriseOnboarding() {
   const renderStepActions = () => {
     if (currentStep === 0) {
       return (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 24 }}>
+        <div style={primaryActionBarStyle}>
           <Button type="primary" size="large" onClick={handleNext}>
             下一步
           </Button>
@@ -493,7 +562,7 @@ function EnterpriseOnboarding() {
 
     if (currentStep === 1) {
       return (
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 24 }}>
+        <div style={actionBarStyle}>
           <Button size="large" onClick={handlePrev}>上一步</Button>
           <Button type="primary" size="large" onClick={handleNext}>
             {mode === 'create' ? '开始创建企业' : '去填写加入申请'}
@@ -504,7 +573,7 @@ function EnterpriseOnboarding() {
 
     if (mode === 'create' && currentStep === 2) {
       return (
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 24 }}>
+        <div style={actionBarStyle}>
           <Button size="large" onClick={handlePrev}>上一步</Button>
           <Button type="primary" size="large" onClick={handleNext}>
             下一步
@@ -515,7 +584,7 @@ function EnterpriseOnboarding() {
 
     if (mode === 'create' && currentStep === 3) {
       return (
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 24 }}>
+        <div style={actionBarStyle}>
           <Button size="large" onClick={handlePrev}>上一步</Button>
           <Button type="primary" size="large" loading={submitting} onClick={() => createForm.submit()}>
             创建企业并进入系统
@@ -525,7 +594,7 @@ function EnterpriseOnboarding() {
     }
 
     return (
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 24 }}>
+      <div style={actionBarStyle}>
         <Button size="large" onClick={handlePrev}>上一步</Button>
         <Button type="primary" size="large" loading={submitting} onClick={() => joinForm.submit()}>
           提交加入申请
@@ -536,8 +605,8 @@ function EnterpriseOnboarding() {
 
   if (loading) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f7fb' }}>
-        <Card bordered={false} style={{ width: 420, textAlign: 'center', borderRadius: 16 }}>
+      <div style={{ ...pageStyle, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Card bordered={false} style={{ width: 420, textAlign: 'center', ...mainCardStyle }}>
           <LoadingOutlined style={{ fontSize: 28, color: '#1677ff', marginBottom: 12 }} />
           <div>正在准备账户初始化...</div>
         </Card>
@@ -546,13 +615,22 @@ function EnterpriseOnboarding() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: 'linear-gradient(180deg, #f7faff 0%, #eef4ff 100%)', padding: '40px 16px' }}>
-      <div style={{ maxWidth: 920, margin: '0 auto' }}>
-        <Card bordered={false} style={{ borderRadius: 20, boxShadow: '0 20px 60px rgba(15, 23, 42, 0.08)' }} bodyStyle={{ padding: 32 }}>
+    <div style={pageStyle}>
+      <div style={pageContainerStyle}>
+        <Card bordered={false} style={mainCardStyle} bodyStyle={{ padding: 32 }}>
+          <div style={sectionHeaderStyle}>
+            <Space direction="vertical" size={4} style={{ width: '100%' }}>
+              <Title level={3} style={{ marginBottom: 0 }}>账户初始化</Title>
+              <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                按步骤完成账户初始化。你可以创建一个新企业，或者申请加入已有企业。
+              </Paragraph>
+            </Space>
+          </div>
+
           <Space direction="vertical" size={8} style={{ width: '100%', marginBottom: 24 }}>
-            <Title level={2} style={{ marginBottom: 0 }}>账户初始化</Title>
+            <Text strong>初始化进度</Text>
             <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-              按步骤完成账户初始化。你可以创建一个新企业，或者申请加入已有企业。
+              系统将根据你的企业归属创建工作空间，并为后续权限和数据隔离做准备。
             </Paragraph>
           </Space>
 
@@ -585,7 +663,7 @@ function EnterpriseOnboarding() {
 
           <div style={{ marginTop: 24 }}>
             {hasPendingJoinRequest ? (
-              <Card bordered={false} style={{ background: '#fafcff', borderRadius: 16 }}>
+              <Card bordered={false} style={contentCardStyle}>
                 <Space direction="vertical" size={12} style={{ width: '100%' }}>
                   <Title level={4} style={{ marginBottom: 0 }}>等待管理员审核</Title>
                   <Paragraph type="secondary" style={{ marginBottom: 0 }}>

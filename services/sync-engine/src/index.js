@@ -16,7 +16,7 @@ const { connectDatabase } = require('./config/database');
 const { syncDatabase } = require('./models');
 const PlatformConfigService = require('./services/platform-config.service');
 const { initMQ, closeMQ } = require('./services/mq');
-const { ensureTenantColumns, runWithRequestContext } = require('./services/tenant-context.service');
+const { ensureLegacySheinSchema, ensureTenantColumns, runWithRequestContext } = require('./services/tenant-context.service');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -72,6 +72,7 @@ app.use((err, req, res, next) => {
 const start = async () => {
   await connectDatabase();
   await syncDatabase();
+  await ensureLegacySheinSchema();
   await ensureTenantColumns();
   
   // 初始化默认平台配置

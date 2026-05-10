@@ -26,6 +26,7 @@ services:
     environment:
       TZ: ${TZ:-Asia/Shanghai}
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_ROOT_HOST: "%"
       MYSQL_DATABASE: ${MYSQL_DATABASE:-eer}
     ports:
       - "127.0.0.1:${MYSQL_BIND_PORT:-3316}:3306"

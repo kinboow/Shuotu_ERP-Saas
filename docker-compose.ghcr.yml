@@ -29,7 +29,7 @@ services:
       MYSQL_ROOT_HOST: "%"
       MYSQL_DATABASE: ${MYSQL_DATABASE:-eer}
     ports:
-      - "127.0.0.1:${MYSQL_BIND_PORT:-3316}:3306"
+      - "0.0.0.0:${MYSQL_BIND_PORT:-3316}:3306"
     volumes:
       - mysql-data:/var/lib/mysql
     healthcheck:
@@ -43,7 +43,7 @@ services:
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "127.0.0.1:${REDIS_BIND_PORT:-6380}:6379"
+      - "0.0.0.0:${REDIS_BIND_PORT:-6380}:6379"
     volumes:
       - redis-data:/data
     healthcheck:
@@ -61,8 +61,8 @@ services:
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-eer_mq_2024}
       RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-eer}
     ports:
-      - "127.0.0.1:${RABBITMQ_BIND_PORT:-5672}:5672"
-      - "127.0.0.1:${RABBITMQ_MANAGEMENT_BIND_PORT:-15672}:15672"
+      - "0.0.0.0:${RABBITMQ_BIND_PORT:-5672}:5672"
+      - "0.0.0.0:${RABBITMQ_MANAGEMENT_BIND_PORT:-15672}:15672"
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
     healthcheck:

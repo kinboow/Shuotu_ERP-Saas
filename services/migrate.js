@@ -1,6 +1,5 @@
 const path = require('path');
 const fs = require('fs');
-const { QueryTypes } = require('sequelize');
 try {
   require('dotenv').config({ path: path.resolve(__dirname, '.env') });
 } catch (error) {
@@ -12,6 +11,7 @@ try {
 process.env.DB_AUTO_SYNC = process.env.DB_AUTO_SYNC || 'true';
 
 const { sequelize: migrationSequelize, syncDatabase: syncMisc } = require('./misc/src/models');
+const QueryTypes = migrationSequelize.Sequelize.QueryTypes;
 const {
   ensureTenantTables,
   ensureLegacyAuthSchema,

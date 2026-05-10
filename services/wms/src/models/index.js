@@ -25,8 +25,8 @@ const Warehouse = require('./warehouse')(sequelize);
 const StockLog = require('./stock-log')(sequelize);
 
 // 定义关联关系
-Inventory.belongsTo(Warehouse, { foreignKey: 'warehouseId', targetKey: 'warehouseId', as: 'warehouse' });
-Warehouse.hasMany(Inventory, { foreignKey: 'warehouseId', sourceKey: 'warehouseId', as: 'inventories' });
+Inventory.belongsTo(Warehouse, { foreignKey: 'warehouseId', targetKey: 'warehouseId', as: 'warehouse', constraints: false });
+Warehouse.hasMany(Inventory, { foreignKey: 'warehouseId', sourceKey: 'warehouseId', as: 'inventories', constraints: false });
 
 const shouldAutoSync = process.env.DB_AUTO_SYNC === 'true' || process.env.NODE_ENV === 'development';
 

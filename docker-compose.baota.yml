@@ -100,7 +100,7 @@ services:
       dockerfile: docker/web.Dockerfile
     restart: unless-stopped
     ports:
-      - "127.0.0.1:${WEB_PORT:-8088}:80"
+      - "0.0.0.0:${WEB_PORT:-8088}:80"
     depends_on:
       - gateway
 
@@ -110,7 +110,7 @@ services:
       dockerfile: docker/admin-web.Dockerfile
     restart: unless-stopped
     ports:
-      - "127.0.0.1:${ADMIN_WEB_PORT:-8090}:80"
+      - "0.0.0.0:${ADMIN_WEB_PORT:-8090}:80"
     depends_on:
       - admin-api
 

@@ -95,7 +95,7 @@ services:
     image: ${GHCR_NAMESPACE}/shuotu-erp-web:${IMAGE_TAG:-latest}
     restart: unless-stopped
     ports:
-      - "127.0.0.1:${WEB_PORT:-8088}:80"
+      - "0.0.0.0:${WEB_PORT:-8088}:80"
     depends_on:
       - gateway
 
@@ -103,7 +103,7 @@ services:
     image: ${GHCR_NAMESPACE}/shuotu-erp-admin-web:${IMAGE_TAG:-latest}
     restart: unless-stopped
     ports:
-      - "127.0.0.1:${ADMIN_WEB_PORT:-8090}:80"
+      - "0.0.0.0:${ADMIN_WEB_PORT:-8090}:80"
     depends_on:
       - admin-api
 

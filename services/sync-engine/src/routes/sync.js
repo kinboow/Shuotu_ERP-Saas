@@ -7,8 +7,23 @@ const router = express.Router();
 const adapterManager = require('../adapters');
 const scheduler = require('../engine/scheduler');
 const SyncEngine = require('../engine/sync-engine');
+const PlatformConfigService = require('../services/platform-config.service');
+const { getRequiredEnterpriseIdFromRequest } = require('../services/tenant-context.service');
 
 const syncEngine = new SyncEngine();
+
+async function ensureShopBelongsToEnterprise(shopId, enterpriseId) {
+  const shop = await PlatformConfigService.getShopConfig(shopId, enterpriseId);
+  if (!shop) {
+    throw new Error('店铺不存在或不属于当前企业');
+  }
+  return shop;
+}
+
+async function getEnterpriseShopIdSet(enterpriseId) {
+  const shops = await PlatformConfigService.getEnterpriseShops(enterpriseId);
+  return new Set(shops.map(shop => String(shop.id)));
+}
 
 /**
  * 获取支持的平台列表
@@ -25,26 +40,44 @@ router.get('/platforms', (req, res) => {
  * 获取已注册的适配器列表
  * GET /api/sync/adapters
  */
-router.get('/adapters', (req, res) => {
-  const adapters = adapterManager.getAll().map(({ shopId, platform, adapter }) => ({
-    shopId,
-    platform,
-    info: adapter.getInfo()
-  }));
+router.get('/adapters', async (req, res) => {
+  try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
+    const allowedShopIds = await getEnterpriseShopIdSet(enterpriseId);
+    const adapters = adapterManager.getAll()
+      .filter(({ shopId }) => allowedShopIds.has(String(shopId)))
+      .map(({ shopId, platform, adapter }) => ({
+        shopId,
+        platform,
+        info: adapter.getInfo()
+      }));
 
-  res.json({
-    success: true,
-    data: adapters,
-    stats: adapterManager.getStats()
-  });
+    res.json({
+      success: true,
+      data: adapters,
+      stats: {
+        total: adapters.length,
+        byPlatform: adapters.reduce((acc, adapter) => {
+          acc[adapter.platform] = (acc[adapter.platform] || 0) + 1;
+          return acc;
+        }, {})
+      }
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
 });
 
 /**
  * 注册适配器
  * POST /api/sync/adapters
  */
-router.post('/adapters', (req, res) => {
+router.post('/adapters', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { shopId, platform, config } = req.body;
 
     if (!shopId || !platform) {
@@ -53,6 +86,8 @@ router.post('/adapters', (req, res) => {
         message: '缺少必要参数: shopId, platform'
       });
     }
+
+    await ensureShopBelongsToEnterprise(shopId, enterpriseId);
 
     const adapter = adapterManager.register(shopId, platform, config);
 
@@ -73,23 +108,33 @@ router.post('/adapters', (req, res) => {
  * 移除适配器
  * DELETE /api/sync/adapters/:shopId
  */
-router.delete('/adapters/:shopId', (req, res) => {
-  const { shopId } = req.params;
+router.delete('/adapters/:shopId', async (req, res) => {
+  try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
+    const { shopId } = req.params;
 
-  if (!adapterManager.has(shopId)) {
-    return res.status(404).json({
+    await ensureShopBelongsToEnterprise(shopId, enterpriseId);
+
+    if (!adapterManager.has(shopId)) {
+      return res.status(404).json({
+        success: false,
+        message: '适配器不存在'
+      });
+    }
+
+    adapterManager.remove(shopId);
+    scheduler.removeJob(shopId);
+
+    res.json({
+      success: true,
+      message: '适配器已移除'
+    });
+  } catch (error) {
+    res.status(400).json({
       success: false,
-      message: '适配器不存在'
+      message: error.message
     });
   }
-
-  adapterManager.remove(shopId);
-  scheduler.removeJob(shopId);
-
-  res.json({
-    success: true,
-    message: '适配器已移除'
-  });
 });
 
 /**
@@ -98,6 +143,7 @@ router.delete('/adapters/:shopId', (req, res) => {
  */
 router.post('/orders', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { shopId, startTime, endTime, status, pageSize } = req.body;
 
     if (!shopId) {
@@ -106,6 +152,8 @@ router.post('/orders', async (req, res) => {
         message: '缺少shopId'
       });
     }
+
+    await ensureShopBelongsToEnterprise(shopId, enterpriseId);
 
     const result = await syncEngine.syncOrders(shopId, {
       startTime: startTime ? new Date(startTime) : new Date(Date.now() - 24 * 60 * 60 * 1000),
@@ -132,6 +180,7 @@ router.post('/orders', async (req, res) => {
  */
 router.post('/products', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { shopId, pageSize } = req.body;
 
     if (!shopId) {
@@ -140,6 +189,8 @@ router.post('/products', async (req, res) => {
         message: '缺少shopId'
       });
     }
+
+    await ensureShopBelongsToEnterprise(shopId, enterpriseId);
 
     const result = await syncEngine.syncProducts(shopId, { pageSize });
 
@@ -161,6 +212,7 @@ router.post('/products', async (req, res) => {
  */
 router.post('/inventory', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { shopId, skuList } = req.body;
 
     if (!shopId || !skuList || !Array.isArray(skuList)) {
@@ -169,6 +221,8 @@ router.post('/inventory', async (req, res) => {
         message: '缺少shopId或skuList'
       });
     }
+
+    await ensureShopBelongsToEnterprise(shopId, enterpriseId);
 
     const result = await syncEngine.syncInventory(shopId, skuList);
 
@@ -187,6 +241,7 @@ router.post('/inventory', async (req, res) => {
  */
 router.post('/ship', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { shopId, orderId, logistics } = req.body;
 
     if (!shopId || !orderId || !logistics) {
@@ -195,6 +250,8 @@ router.post('/ship', async (req, res) => {
         message: '缺少必要参数'
       });
     }
+
+    await ensureShopBelongsToEnterprise(shopId, enterpriseId);
 
     const result = await syncEngine.shipOrder(shopId, orderId, logistics);
 
@@ -213,7 +270,10 @@ router.post('/ship', async (req, res) => {
  */
 router.get('/orders/:shopId/:orderId', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { shopId, orderId } = req.params;
+
+    await ensureShopBelongsToEnterprise(shopId, enterpriseId);
 
     const order = await syncEngine.getOrderDetail(shopId, orderId);
 
@@ -233,8 +293,9 @@ router.get('/orders/:shopId/:orderId', async (req, res) => {
  * 配置定时同步
  * POST /api/sync/schedule
  */
-router.post('/schedule', (req, res) => {
+router.post('/schedule', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { shopId, ordersCron, productsCron, enabled } = req.body;
 
     if (!shopId) {
@@ -243,6 +304,8 @@ router.post('/schedule', (req, res) => {
         message: '缺少shopId'
       });
     }
+
+    await ensureShopBelongsToEnterprise(shopId, enterpriseId);
 
     scheduler.addJob(shopId, { ordersCron, productsCron, enabled });
 
@@ -262,11 +325,26 @@ router.post('/schedule', (req, res) => {
  * 获取调度器状态
  * GET /api/sync/schedule/status
  */
-router.get('/schedule/status', (req, res) => {
-  res.json({
-    success: true,
-    data: scheduler.getStatus()
-  });
+router.get('/schedule/status', async (req, res) => {
+  try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
+    const allowedShopIds = await getEnterpriseShopIdSet(enterpriseId);
+    const status = scheduler.getStatus();
+    const shops = status.shops.filter(shop => allowedShopIds.has(String(shop.shopId)));
+
+    res.json({
+      success: true,
+      data: {
+        totalJobs: shops.length,
+        shops
+      }
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
 });
 
 /**
@@ -275,12 +353,30 @@ router.get('/schedule/status', (req, res) => {
  */
 router.post('/all/orders', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { startTime, endTime } = req.body;
+    const allowedShopIds = await getEnterpriseShopIdSet(enterpriseId);
+    const results = [];
 
-    const results = await syncEngine.syncAllOrders({
-      startTime: startTime ? new Date(startTime) : new Date(Date.now() - 24 * 60 * 60 * 1000),
-      endTime: endTime ? new Date(endTime) : new Date()
-    });
+    for (const { shopId } of adapterManager.getAll()) {
+      if (!allowedShopIds.has(String(shopId))) {
+        continue;
+      }
+
+      try {
+        const result = await syncEngine.syncOrders(shopId, {
+          startTime: startTime ? new Date(startTime) : new Date(Date.now() - 24 * 60 * 60 * 1000),
+          endTime: endTime ? new Date(endTime) : new Date()
+        });
+        results.push(result);
+      } catch (error) {
+        results.push({
+          shopId,
+          success: false,
+          error: error.message
+        });
+      }
+    }
 
     res.json({
       success: true,

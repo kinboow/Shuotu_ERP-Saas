@@ -1,0 +1,264 @@
+services:
+  migrator:
+    build:
+      context: .
+      dockerfile: docker/migrator.Dockerfile
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      NODE_ENV: production
+      DB_AUTO_SYNC: "true"
+      MYSQL_HOST: ${MYSQL_HOST}
+      MYSQL_PORT: ${MYSQL_PORT:-3306}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      REDIS_HOST: ${REDIS_HOST:-127.0.0.1}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-127.0.0.1}
+      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
+      RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_PASS: ${RABBITMQ_PASS:-guest}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-}
+      TOKEN_EXPIRE: ${TOKEN_EXPIRE:-7200}
+      REFRESH_TOKEN_EXPIRE: ${REFRESH_TOKEN_EXPIRE:-604800}
+      FRONTEND_URL: ${FRONTEND_URL}
+      PLATFORM_ADMIN_PORT: ${PLATFORM_ADMIN_PORT:-5090}
+      PLATFORM_ADMIN_BOOTSTRAP_USERNAME: ${PLATFORM_ADMIN_BOOTSTRAP_USERNAME:-platform_admin}
+      PLATFORM_ADMIN_BOOTSTRAP_PASSWORD: ${PLATFORM_ADMIN_BOOTSTRAP_PASSWORD:-admin123}
+      PLATFORM_ADMIN_JWT_SECRET: ${PLATFORM_ADMIN_JWT_SECRET}
+    restart: "no"
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8088}:80"
+    depends_on:
+      - gateway
+
+  admin-web:
+    build:
+      context: .
+      dockerfile: docker/admin-web.Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${ADMIN_WEB_PORT:-8090}:80"
+    depends_on:
+      - admin-api
+
+  admin-api:
+    build:
+      context: .
+      dockerfile: docker/admin-api.Dockerfile
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      NODE_ENV: production
+      MYSQL_HOST: ${MYSQL_HOST}
+      MYSQL_PORT: ${MYSQL_PORT:-3306}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      PLATFORM_ADMIN_PORT: ${PLATFORM_ADMIN_PORT:-5090}
+      PLATFORM_ADMIN_BOOTSTRAP_USERNAME: ${PLATFORM_ADMIN_BOOTSTRAP_USERNAME:-platform_admin}
+      PLATFORM_ADMIN_BOOTSTRAP_PASSWORD: ${PLATFORM_ADMIN_BOOTSTRAP_PASSWORD:-admin123}
+      PLATFORM_ADMIN_JWT_SECRET: ${PLATFORM_ADMIN_JWT_SECRET}
+      JWT_SECRET: ${JWT_SECRET}
+
+  gateway:
+    build:
+      context: .
+      dockerfile: docker/gateway.Dockerfile
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      NODE_ENV: production
+      SERVICE_NAME: gateway
+      PORT: ${GATEWAY_HTTPS_PORT:-5443}
+      HTTP_PORT: 5000
+      HTTPS_ENABLED: ${HTTPS_ENABLED:-false}
+      JWT_SECRET: ${JWT_SECRET}
+      SYNC_ENGINE_HOST: sync-engine
+      OMS_HOST: oms
+      WMS_HOST: wms
+      PMS_HOST: pms
+      OSS_HOST: oss
+      MISC_HOST: misc
+      SSL_KEY_PATH: ${SSL_KEY_PATH:-}
+      SSL_CERT_PATH: ${SSL_CERT_PATH:-}
+    ports:
+      - "${GATEWAY_BIND_PORT:-5000}:5000"
+      - "${GATEWAY_HTTPS_BIND_PORT:-5443}:${GATEWAY_HTTPS_PORT:-5443}"
+
+  sync-engine:
+    build:
+      context: .
+      dockerfile: docker/sync-engine.Dockerfile
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      NODE_ENV: production
+      DB_AUTO_SYNC: "false"
+      SERVICE_NAME: sync-engine
+      PORT: 5001
+      FRONTEND_URL: ${FRONTEND_URL}
+      MYSQL_HOST: ${MYSQL_HOST}
+      MYSQL_PORT: ${MYSQL_PORT:-3306}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      REDIS_HOST: ${REDIS_HOST:-127.0.0.1}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-127.0.0.1}
+      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
+      RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_PASS: ${RABBITMQ_PASS:-guest}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
+
+  oms:
+    build:
+      context: .
+      dockerfile: docker/oms.Dockerfile
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      NODE_ENV: production
+      DB_AUTO_SYNC: "false"
+      SERVICE_NAME: oms
+      PORT: 5002
+      MYSQL_HOST: ${MYSQL_HOST}
+      MYSQL_PORT: ${MYSQL_PORT:-3306}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      REDIS_HOST: ${REDIS_HOST:-127.0.0.1}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      SYNC_ENGINE_HOST: sync-engine
+      SYNC_ENGINE_PORT: 5001
+      SYNC_ENGINE_URL: http://sync-engine:5001
+
+  wms:
+    build:
+      context: .
+      dockerfile: docker/wms.Dockerfile
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      NODE_ENV: production
+      DB_AUTO_SYNC: "false"
+      SERVICE_NAME: wms
+      PORT: 5003
+      MYSQL_HOST: ${MYSQL_HOST}
+      MYSQL_PORT: ${MYSQL_PORT:-3306}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      REDIS_HOST: ${REDIS_HOST:-127.0.0.1}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+
+  pms:
+    build:
+      context: .
+      dockerfile: docker/pms.Dockerfile
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      NODE_ENV: production
+      DB_AUTO_SYNC: "false"
+      SERVICE_NAME: pms
+      PORT: 5004
+      MYSQL_HOST: ${MYSQL_HOST}
+      MYSQL_PORT: ${MYSQL_PORT:-3306}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      REDIS_HOST: ${REDIS_HOST:-127.0.0.1}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+
+  misc:
+    build:
+      context: .
+      dockerfile: docker/misc.Dockerfile
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      NODE_ENV: production
+      DB_AUTO_SYNC: "false"
+      SERVICE_NAME: misc
+      PORT: 5005
+      MYSQL_HOST: ${MYSQL_HOST}
+      MYSQL_PORT: ${MYSQL_PORT:-3306}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      REDIS_HOST: ${REDIS_HOST:-127.0.0.1}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-127.0.0.1}
+      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
+      RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_PASS: ${RABBITMQ_PASS:-guest}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-}
+      TOKEN_EXPIRE: ${TOKEN_EXPIRE:-7200}
+      REFRESH_TOKEN_EXPIRE: ${REFRESH_TOKEN_EXPIRE:-604800}
+    volumes:
+      - misc-uploads:/app/services/misc/uploads
+
+  oss:
+    build:
+      context: .
+      dockerfile: docker/oss.Dockerfile
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      NODE_ENV: production
+      SERVICE_NAME: oss
+      PORT: 3001
+      OSS_SECRET_KEY: ${OSS_SECRET_KEY}
+      FILE_RETENTION_HOURS: ${FILE_RETENTION_HOURS:-24}
+      DEFAULT_EXPIRES_IN: ${DEFAULT_EXPIRES_IN:-7200}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+    volumes:
+      - oss-storage:/app/services/oss/storage
+
+  webhook:
+    build:
+      context: .
+      dockerfile: docker/webhook.Dockerfile
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      NODE_ENV: production
+      MYSQL_HOST: ${MYSQL_HOST}
+      MYSQL_PORT: ${MYSQL_PORT:-3306}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      WEBHOOK_HTTP_PORT: ${WEBHOOK_HTTP_PORT:-8080}
+      WEBHOOK_HTTPS_PORT: ${WEBHOOK_HTTPS_PORT:-8678}
+      SSL_KEY_PATH: ${WEBHOOK_SSL_KEY_PATH:-}
+      SSL_CERT_PATH: ${WEBHOOK_SSL_CERT_PATH:-}
+      TEMU_APP_KEY: ${TEMU_APP_KEY:-}
+      TEMU_APP_SECRET: ${TEMU_APP_SECRET:-}
+      TIKTOK_APP_KEY: ${TIKTOK_APP_KEY:-}
+      TIKTOK_APP_SECRET: ${TIKTOK_APP_SECRET:-}
+      SHEIN_FULL_APP_ID: ${SHEIN_FULL_APP_ID:-}
+      SHEIN_FULL_APP_SECRET_KEY: ${SHEIN_FULL_APP_SECRET_KEY:-}
+    ports:
+      - "${WEBHOOK_HTTP_PORT:-8080}:8080"
+      - "${WEBHOOK_HTTPS_PORT:-8678}:8678"
+
+volumes:
+  oss-storage:
+  misc-uploads:

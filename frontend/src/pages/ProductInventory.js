@@ -4,10 +4,12 @@ import { SyncOutlined, InboxOutlined } from '@ant-design/icons';
 
 function ProductInventory() {
   const [loading, setLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [shops, setShops] = useState([]);
   const [selectedShopId, setSelectedShopId] = useState(null);
   const [warehouseType, setWarehouseType] = useState('1');
   const [inventoryData, setInventoryData] = useState([]);
+  const [pagination, setPagination] = useState({ current: 1, pageSize: 20, total: 0 });
   const [stats, setStats] = useState({
     totalProducts: 0,
     totalInventory: 0,
@@ -19,6 +21,12 @@ function ProductInventory() {
   useEffect(() => {
     fetchShops();
   }, []);
+
+  useEffect(() => {
+    if (selectedShopId) {
+      fetchInventoryList();
+    }
+  }, [selectedShopId, warehouseType, pagination.current, pagination.pageSize]);
 
   const fetchShops = async () => {
     try {
@@ -37,6 +45,63 @@ function ProductInventory() {
     }
   };
 
+  const applyInventoryList = (list = [], total = list.length) => {
+    setInventoryData(list);
+    const nextStats = list.reduce((acc, product) => {
+      if (product.inventory) {
+        acc.totalInventory += product.inventory.totalInventoryQuantity || 0;
+        acc.totalUsable += product.inventory.totalUsableInventory || 0;
+        acc.totalLocked += product.inventory.totalLockedQuantity || 0;
+      }
+      return acc;
+    }, {
+      totalProducts: total,
+      totalInventory: 0,
+      totalUsable: 0,
+      totalLocked: 0
+    });
+    setStats(nextStats);
+  };
+
+  const fetchInventoryList = async (nextPage = pagination.current, nextPageSize = pagination.pageSize) => {
+    if (!selectedShopId) {
+      setInventoryData([]);
+      setPagination(prev => ({ ...prev, total: 0 }));
+      setStats({ totalProducts: 0, totalInventory: 0, totalUsable: 0, totalLocked: 0 });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({
+        shopId: selectedShopId,
+        warehouseType,
+        page: nextPage,
+        pageSize: nextPageSize
+      });
+      const response = await fetch(`/api/shein-full/inventory/list?${params}`);
+      const data = await response.json();
+
+      if (data.success) {
+        const list = data.data?.list || [];
+        applyInventoryList(list, data.data?.total || 0);
+        setPagination(prev => ({
+          ...prev,
+          current: data.data?.page || nextPage,
+          pageSize: data.data?.pageSize || nextPageSize,
+          total: data.data?.total || 0
+        }));
+      } else {
+        message.error(data.message || '获取库存列表失败');
+      }
+    } catch (error) {
+      console.error('获取库存列表失败:', error);
+      message.error('获取库存列表失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // 同步在线商品库存
   const handleSyncInventory = async () => {
     if (!selectedShopId) {
@@ -44,9 +109,9 @@ function ProductInventory() {
       return;
     }
 
-    setLoading(true);
+    setSyncing(true);
     try {
-      const response = await fetch('/api/inventory/sync-online-products', {
+      const response = await fetch('/api/shein-full/sync/inventory', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -58,26 +123,9 @@ function ProductInventory() {
       const data = await response.json();
 
       if (data.success) {
-        const products = data.data.products || [];
-        setInventoryData(products);
-        
-        // 计算统计数据
-        const stats = products.reduce((acc, product) => {
-          if (product.inventory) {
-            acc.totalInventory += product.inventory.totalInventoryQuantity || 0;
-            acc.totalUsable += product.inventory.totalUsableInventory || 0;
-            acc.totalLocked += product.inventory.totalLockedQuantity || 0;
-          }
-          return acc;
-        }, {
-          totalProducts: products.length,
-          totalInventory: 0,
-          totalUsable: 0,
-          totalLocked: 0
-        });
-        
-        setStats(stats);
-        message.success(`成功同步 ${products.length} 个商品的库存信息`);
+        setPagination(prev => ({ ...prev, current: 1 }));
+        await fetchInventoryList(1, pagination.pageSize);
+        message.success(`库存同步完成：成功 ${data.data?.successCount || 0}，失败 ${data.data?.failCount || 0}`);
       } else {
         message.error(data.message || '同步失败');
       }
@@ -85,7 +133,7 @@ function ProductInventory() {
       console.error('同步库存失败:', error);
       message.error('同步失败: ' + error.message);
     } finally {
-      setLoading(false);
+      setSyncing(false);
     }
   };
 
@@ -223,7 +271,7 @@ function ProductInventory() {
             type="primary"
             icon={<SyncOutlined />}
             onClick={handleSyncInventory}
-            loading={loading}
+            loading={syncing}
           >
             同步库存
           </Button>
@@ -274,17 +322,20 @@ function ProductInventory() {
 
       {loading ? (
         <div style={{ textAlign: 'center', padding: '100px 0' }}>
-          <Spin size="large" tip="正在同步库存数据..." />
+          <Spin size="large" tip="正在加载库存数据..." />
         </div>
       ) : (
         <Table
           columns={columns}
           dataSource={inventoryData}
-          rowKey="sku_code"
+          rowKey={(record) => `${record.sku_code}-${record.warehouse_code || ''}`}
           pagination={{
-            pageSize: 20,
+            current: pagination.current,
+            pageSize: pagination.pageSize,
+            total: pagination.total,
             showSizeChanger: true,
-            showTotal: (total) => `共 ${total} 个商品`
+            showTotal: (total) => `共 ${total} 个商品`,
+            onChange: (page, pageSize) => setPagination(prev => ({ ...prev, current: page, pageSize }))
           }}
           scroll={{ x: 1200 }}
         />

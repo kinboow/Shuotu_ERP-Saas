@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { clearAuthSession } from '../utils/authStorage';
 
 // 自动检测API地址
 // 优先使用环境变量配置，否则使用相对路径（通过dev server代理）
@@ -16,6 +17,81 @@ const API_BASE_URL = getApiBaseUrl();
 
 console.log('API Base URL:', API_BASE_URL);
 
+const toPlainHeaders = (headers = {}) => {
+  if (typeof Headers !== 'undefined' && headers instanceof Headers) {
+    return Object.fromEntries(headers.entries());
+  }
+
+  if (Array.isArray(headers)) {
+    return Object.fromEntries(headers);
+  }
+
+  return { ...(headers || {}) };
+};
+
+const getCurrentEnterpriseId = () => {
+  try {
+    const raw = localStorage.getItem('currentEnterprise');
+    if (!raw) {
+      return null;
+    }
+
+    const currentEnterprise = JSON.parse(raw);
+    const enterpriseId = currentEnterprise?.id;
+    return enterpriseId === null || enterpriseId === undefined || enterpriseId === ''
+      ? null
+      : enterpriseId;
+  } catch (error) {
+    return null;
+  }
+};
+
+const appendEnterpriseHeader = (headers = {}) => {
+  const enterpriseId = getCurrentEnterpriseId();
+  const normalizedHeaders = toPlainHeaders(headers);
+  if (enterpriseId === null) {
+    return normalizedHeaders;
+  }
+
+  return {
+    ...normalizedHeaders,
+    'x-enterprise-id': String(enterpriseId)
+  };
+};
+
+const appendAuthHeaders = (headers = {}) => {
+  const token = localStorage.getItem('token');
+  const normalizedHeaders = appendEnterpriseHeader(headers);
+  if (!token || normalizedHeaders.Authorization) {
+    return normalizedHeaders;
+  }
+
+  return {
+    ...normalizedHeaders,
+    Authorization: `Bearer ${token}`
+  };
+};
+
+const shouldAttachSessionHeaders = (requestUrl) => {
+  if (!requestUrl) {
+    return true;
+  }
+
+  if (requestUrl.startsWith('/')) {
+    return true;
+  }
+
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  if (requestUrl.startsWith(window.location.origin)) {
+    return true;
+  }
+
+  return Boolean(API_BASE_URL) && requestUrl.startsWith(API_BASE_URL);
+};
+
 const api = axios.create({
   baseURL: API_BASE_URL,
   headers: {
@@ -28,6 +104,7 @@ const api = axios.create({
 api.interceptors.request.use(
   config => {
     const token = localStorage.getItem('token');
+    config.headers = appendEnterpriseHeader(config.headers || {});
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -38,6 +115,25 @@ api.interceptors.request.use(
   }
 );
 
+if (!axios.__enterpriseAwareInterceptorInstalled) {
+  axios.interceptors.request.use(
+    config => {
+      const requestUrl = config.baseURL && config.url && !config.url.startsWith('http')
+        ? `${config.baseURL}${config.url}`
+        : config.url;
+
+      if (shouldAttachSessionHeaders(requestUrl)) {
+        config.headers = appendAuthHeaders(config.headers || {});
+      }
+
+      return config;
+    },
+    error => Promise.reject(error)
+  );
+
+  axios.__enterpriseAwareInterceptorInstalled = true;
+}
+
 // 添加响应拦截器
 api.interceptors.response.use(
   response => response,
@@ -45,8 +141,7 @@ api.interceptors.response.use(
     // 处理401未授权错误
     if (error.response && error.response.status === 401) {
       // Token过期或无效，清除登录信息并跳转到登录页
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
+      clearAuthSession();
       window.location.href = '/login';
       return Promise.reject(error);
     }
@@ -65,6 +160,24 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+if (typeof window !== 'undefined' && typeof window.fetch === 'function' && !window.__enterpriseAwareFetchInstalled) {
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = (input, init = {}) => {
+    const requestUrl = typeof input === 'string' ? input : input?.url;
+    const shouldAppendEnterpriseHeader = shouldAttachSessionHeaders(requestUrl);
+
+    const nextInit = {
+      ...init,
+      headers: shouldAppendEnterpriseHeader
+        ? appendAuthHeaders(init.headers || {})
+        : toPlainHeaders(init.headers || {})
+    };
+
+    return originalFetch(input, nextInit);
+  };
+  window.__enterpriseAwareFetchInstalled = true;
+}
 
 export const ordersAPI = {
   getAll: (params) => api.get('/orders', { params }),
@@ -185,10 +298,13 @@ export const platformConfigsAPI = {
 };
 
 export const authAPI = {
+  register: (data) => api.post('/auth/register', data),
   login: (data) => api.post('/auth/login', data),
   logout: () => api.post('/auth/logout'),
   refresh: (data) => api.post('/auth/refresh', data),
   getCurrentUser: () => api.get('/auth/me'),
+  updateProfile: (data) => api.put('/auth/profile', data),
+  selectEnterprise: (data) => api.post('/auth/select-enterprise', data),
   changePassword: (data) => api.post('/auth/change-password', data)
 };
 
@@ -216,7 +332,14 @@ export const rolesAPI = {
 // 企业信息 API
 export const enterpriseAPI = {
   get: () => api.get('/enterprise'),
-  update: (data) => api.put('/enterprise', data)
+  update: (data) => api.put('/enterprise', data),
+  getContext: (params) => api.get('/enterprise/context', { params }),
+  create: (data) => api.post('/enterprise/create', data),
+  getMembers: (params) => api.get('/enterprise/members', { params }),
+  createJoinRequest: (data) => api.post('/enterprise/join-requests', data),
+  getJoinRequests: (params) => api.get('/enterprise/join-requests', { params }),
+  approveJoinRequest: (id) => api.post(`/enterprise/join-requests/${id}/approve`),
+  rejectJoinRequest: (id) => api.post(`/enterprise/join-requests/${id}/reject`)
 };
 
 // 日志 API
@@ -279,11 +402,12 @@ export const complianceLabelAPI = {
 
 // OSS 文件上传 API
 export const ossAPI = {
-  // 获取OSS服务地址，自动匹配当前协议
+  // 获取OSS服务地址
   getBaseUrl: () => {
-    const serviceHost = process.env.REACT_APP_SERVICE_HOST || window.location.hostname;
-    const protocol = window.location.protocol;
-    return `${protocol}//${serviceHost}:5000`;
+    if (process.env.REACT_APP_OSS_URL) {
+      return process.env.REACT_APP_OSS_URL;
+    }
+    return '';
   },
   // 上传文件
   upload: (file, category = 'permanent') => {

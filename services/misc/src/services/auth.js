@@ -35,14 +35,15 @@ const generateTokenHash = (token) => {
 /**
  * 生成访问Token
  */
-const generateAccessToken = (user) => {
+const generateAccessToken = (user, context = {}) => {
   const payload = {
     userId: user.id,
     username: user.username,
     roleId: user.role_id,
     roleCode: user.role_code,
     isAdmin: user.is_admin,
-    tokenVersion: user.token_version || 0
+    tokenVersion: user.token_version || 0,
+    enterpriseId: context.currentEnterpriseId || null
   };
   
   return jwt.sign(payload, JWT_SECRET, {
@@ -53,11 +54,12 @@ const generateAccessToken = (user) => {
 /**
  * 生成刷新Token
  */
-const generateRefreshToken = (user) => {
+const generateRefreshToken = (user, context = {}) => {
   const payload = {
     userId: user.id,
     type: 'refresh',
-    tokenVersion: user.token_version || 0
+    tokenVersion: user.token_version || 0,
+    enterpriseId: context.currentEnterpriseId || null
   };
   
   return jwt.sign(payload, JWT_REFRESH_SECRET, {

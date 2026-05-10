@@ -6,6 +6,17 @@ import dayjs from 'dayjs';
 const { Option } = Select;
 const { TextArea } = Input;
 
+const normalizeInventoryRecord = (record = {}) => ({
+  ...record,
+  sku_code: record.skuId,
+  warehouse_id: record.warehouseId,
+  warehouse_name: record.warehouse?.name || record.warehouseId || '默认仓库',
+  quantity: record.totalQty || 0,
+  available_quantity: record.availableQty || 0,
+  locked_quantity: record.lockedQty || 0,
+  min_stock: record.safetyStock || 0
+});
+
 function WarehouseInventory() {
   const [loading, setLoading] = useState(false);
   const [inventoryList, setInventoryList] = useState([]);
@@ -30,7 +41,7 @@ function WarehouseInventory() {
 
   const fetchWarehouses = async () => {
     try {
-      const response = await fetch('/api/wms/warehouses');
+      const response = await fetch('/api/inventory/warehouses');
       const data = await response.json();
       if (data.success) {
         setWarehouseList(data.data || []);
@@ -50,11 +61,11 @@ function WarehouseInventory() {
         ...searchValues
       });
       
-      const response = await fetch(`/api/wms/inventory?${params}`);
+      const response = await fetch(`/api/inventory?${params}`);
       const data = await response.json();
       
       if (data.success) {
-        setInventoryList(data.data?.list || []);
+        setInventoryList((data.data?.list || []).map(normalizeInventoryRecord));
         setPagination(prev => ({ ...prev, total: data.data?.total || 0 }));
         setStats(data.data?.stats || {
           totalSku: 0,
@@ -76,13 +87,22 @@ function WarehouseInventory() {
   // 创建或更新库存
   const handleSave = async (values) => {
     try {
-      const url = editingRecord ? `/api/wms/inventory/${editingRecord.id}` : '/api/wms/inventory';
+      const url = editingRecord ? `/api/inventory/records/${editingRecord.id}` : '/api/inventory/records';
       const method = editingRecord ? 'PUT' : 'POST';
+      const payload = {
+        skuId: values.sku_code,
+        warehouseId: values.warehouse_id,
+        totalQty: values.quantity,
+        availableQty: values.available_quantity,
+        lockedQty: values.locked_quantity,
+        safetyStock: values.min_stock,
+        remark: values.remark
+      };
       
       const response = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(values)
+        body: JSON.stringify(payload)
       });
       
       const data = await response.json();
@@ -105,14 +125,22 @@ function WarehouseInventory() {
   // 编辑库存
   const handleEdit = (record) => {
     setEditingRecord(record);
-    form.setFieldsValue(record);
+    form.setFieldsValue({
+      sku_code: record.sku_code,
+      warehouse_id: record.warehouse_id,
+      quantity: record.quantity,
+      available_quantity: record.available_quantity,
+      locked_quantity: record.locked_quantity,
+      min_stock: record.min_stock,
+      remark: record.remark
+    });
     setModalVisible(true);
   };
 
   // 删除库存
   const handleDelete = async (record) => {
     try {
-      const response = await fetch(`/api/wms/inventory/${record.id}`, {
+      const response = await fetch(`/api/inventory/records/${record.id}`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' }
       });
@@ -175,29 +203,10 @@ function WarehouseInventory() {
       render: (text) => <a>{text}</a>
     },
     {
-      title: '商品名称',
-      dataIndex: 'product_name',
-      key: 'product_name',
-      width: 200,
-      ellipsis: true,
-      render: (text) => (
-        <Tooltip title={text}>
-          {text}
-        </Tooltip>
-      )
-    },
-    {
       title: '仓库',
       dataIndex: 'warehouse_name',
       key: 'warehouse_name',
       width: 120
-    },
-    {
-      title: '库位',
-      dataIndex: 'location',
-      key: 'location',
-      width: 100,
-      render: (text) => text || '-'
     },
     {
       title: '当前库存',
@@ -333,13 +342,13 @@ function WarehouseInventory() {
           <Form.Item name="sku_code" label="SKU编码">
             <Input placeholder="请输入SKU编码" allowClear style={{ width: 160 }} />
           </Form.Item>
-          <Form.Item name="product_name" label="商品名称">
-            <Input placeholder="请输入商品名称" allowClear style={{ width: 160 }} />
+          <Form.Item name="keyword" label="关键词">
+            <Input placeholder="请输入SKU关键词" allowClear style={{ width: 160 }} />
           </Form.Item>
           <Form.Item name="warehouse_id" label="仓库">
             <Select placeholder="全部仓库" allowClear style={{ width: 140 }}>
               {warehouseList.map(warehouse => (
-                <Option key={warehouse.id} value={warehouse.id}>
+                <Option key={warehouse.id} value={warehouse.warehouseId}>
                   {warehouse.name}
                 </Option>
               ))}
@@ -411,27 +420,17 @@ function WarehouseInventory() {
             <Input placeholder="请输入SKU编码" disabled={!!editingRecord} />
           </Form.Item>
           <Form.Item
-            name="product_name"
-            label="商品名称"
-            rules={[{ required: true, message: '请输入商品名称' }]}
-          >
-            <Input placeholder="请输入商品名称" />
-          </Form.Item>
-          <Form.Item
             name="warehouse_id"
             label="仓库"
             rules={[{ required: true, message: '请选择仓库' }]}
           >
             <Select placeholder="请选择仓库">
               {warehouseList.map(warehouse => (
-                <Option key={warehouse.id} value={warehouse.id}>
+                <Option key={warehouse.id} value={warehouse.warehouseId}>
                   {warehouse.name}
                 </Option>
               ))}
             </Select>
-          </Form.Item>
-          <Form.Item name="location" label="库位">
-            <Input placeholder="请输入库位（如：A-01-01）" />
           </Form.Item>
           <Form.Item
             name="quantity"

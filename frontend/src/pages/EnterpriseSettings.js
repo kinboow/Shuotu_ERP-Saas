@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Form, Input, Button, message, Upload, Avatar, Row, Col, Divider, Spin } from 'antd';
+import { Card, Form, Input, Button, message, Upload, Avatar, Row, Col, Divider, Typography } from 'antd';
 import { UploadOutlined, BankOutlined, UserOutlined, PhoneOutlined, MailOutlined, HomeOutlined, LoadingOutlined } from '@ant-design/icons';
 import { enterpriseAPI } from '../api';
 
 const { TextArea } = Input;
+const { Text } = Typography;
 
 // OSS服务地址，通过前端代理转发
 const getOssUrl = () => {
@@ -18,6 +19,7 @@ function EnterpriseSettings() {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [enterpriseCode, setEnterpriseCode] = useState('');
   const [logoUrl, setLogoUrl] = useState('');
   const [uploading, setUploading] = useState(false);
 
@@ -31,19 +33,20 @@ function EnterpriseSettings() {
       const response = await enterpriseAPI.get();
       if (response.data.success) {
         const data = response.data.data;
+        setEnterpriseCode(data.enterpriseCode || data.enterprise_code || '');
         form.setFieldsValue({
-          companyName: data.company_name,
-          companyShortName: data.company_short_name,
-          contactPerson: data.contact_person,
-          contactPhone: data.contact_phone,
-          contactEmail: data.contact_email,
+          companyName: data.companyName || data.company_name,
+          companyShortName: data.companyShortName || data.company_short_name,
+          contactPerson: data.contactPerson || data.contact_person,
+          contactPhone: data.contactPhone || data.contact_phone,
+          contactEmail: data.contactEmail || data.contact_email,
           address: data.address,
-          businessLicense: data.business_license,
-          taxNumber: data.tax_number,
-          bankName: data.bank_name,
-          bankAccount: data.bank_account
+          businessLicense: data.businessLicense || data.business_license,
+          taxNumber: data.taxNumber || data.tax_number,
+          bankName: data.bankName || data.bank_name,
+          bankAccount: data.bankAccount || data.bank_account
         });
-        setLogoUrl(data.logo_url);
+        setLogoUrl(data.logoUrl || data.logo_url || '');
       }
     } catch (error) {
       message.error('获取企业信息失败');
@@ -143,6 +146,16 @@ function EnterpriseSettings() {
           </Row>
 
           <Divider orientation="left">基本信息</Divider>
+
+          <Row gutter={24}>
+            <Col span={12}>
+              <Form.Item label="企业编码">
+                <Text copyable={enterpriseCode ? { text: String(enterpriseCode) } : false}>
+                  {enterpriseCode || '-'}
+                </Text>
+              </Form.Item>
+            </Col>
+          </Row>
           
           <Row gutter={24}>
             <Col span={12}>

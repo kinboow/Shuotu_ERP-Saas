@@ -35,19 +35,21 @@ Shipment.belongsTo(Order, { foreignKey: 'orderId' });
 Order.hasMany(OrderLog, { foreignKey: 'orderId', as: 'logs' });
 OrderLog.belongsTo(Order, { foreignKey: 'orderId' });
 
+const shouldAutoSync = process.env.DB_AUTO_SYNC === 'true' || process.env.NODE_ENV === 'development';
+
 // 同步数据库
 const syncDatabase = async () => {
   try {
     await sequelize.authenticate();
     console.log('[OMS] 数据库连接成功');
-    
-    // 开发环境自动同步表结构
-    if (process.env.NODE_ENV === 'development') {
+
+    if (shouldAutoSync) {
       await sequelize.sync({ alter: true });
       console.log('[OMS] 数据表同步完成');
     }
   } catch (error) {
     console.error('[OMS] 数据库连接失败:', error.message);
+    throw error;
   }
 };
 

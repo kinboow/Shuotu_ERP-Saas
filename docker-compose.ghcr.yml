@@ -1,0 +1,277 @@
+x-backend-env: &backend-env
+  TZ: ${TZ:-Asia/Shanghai}
+  MYSQL_HOST: mysql
+  MYSQL_PORT: 3306
+  MYSQL_USER: root
+  MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+  MYSQL_DATABASE: ${MYSQL_DATABASE:-eer}
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+  RABBITMQ_HOST: rabbitmq
+  RABBITMQ_PORT: 5672
+  RABBITMQ_USER: ${RABBITMQ_USER:-eer_admin}
+  RABBITMQ_PASS: ${RABBITMQ_PASS:-eer_mq_2024}
+  RABBITMQ_VHOST: ${RABBITMQ_VHOST:-eer}
+  JWT_SECRET: ${JWT_SECRET}
+  JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-}
+  TOKEN_EXPIRE: ${TOKEN_EXPIRE:-7200}
+  REFRESH_TOKEN_EXPIRE: ${REFRESH_TOKEN_EXPIRE:-604800}
+
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    command: --default-authentication-plugin=mysql_native_password
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-eer}
+    ports:
+      - "127.0.0.1:${MYSQL_BIND_PORT:-3316}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./erp.sql:/docker-entrypoint-initdb.d/01-erp.sql:ro
+      - ./services/database/saas_core.sql:/docker-entrypoint-initdb.d/02-saas-core.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:${REDIS_BIND_PORT:-6380}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-eer_admin}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-eer_mq_2024}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-eer}
+    ports:
+      - "127.0.0.1:${RABBITMQ_BIND_PORT:-5672}:5672"
+      - "127.0.0.1:${RABBITMQ_MANAGEMENT_BIND_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  migrator:
+    image: ${GHCR_NAMESPACE}/shuotu-erp-migrator:${IMAGE_TAG:-latest}
+    restart: "no"
+    environment:
+      <<: *backend-env
+      NODE_ENV: production
+      DB_AUTO_SYNC: "true"
+      FRONTEND_URL: ${FRONTEND_URL}
+      PLATFORM_ADMIN_PORT: ${PLATFORM_ADMIN_PORT:-5090}
+      PLATFORM_ADMIN_BOOTSTRAP_USERNAME: ${PLATFORM_ADMIN_BOOTSTRAP_USERNAME:-platform_admin}
+      PLATFORM_ADMIN_BOOTSTRAP_PASSWORD: ${PLATFORM_ADMIN_BOOTSTRAP_PASSWORD:-admin123}
+      PLATFORM_ADMIN_JWT_SECRET: ${PLATFORM_ADMIN_JWT_SECRET}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  web:
+    image: ${GHCR_NAMESPACE}/shuotu-erp-web:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8088}:80"
+    depends_on:
+      - gateway
+
+  admin-web:
+    image: ${GHCR_NAMESPACE}/shuotu-erp-admin-web:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${ADMIN_WEB_PORT:-8090}:80"
+    depends_on:
+      - admin-api
+
+  admin-api:
+    image: ${GHCR_NAMESPACE}/shuotu-erp-admin-api:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+      NODE_ENV: production
+      PLATFORM_ADMIN_PORT: ${PLATFORM_ADMIN_PORT:-5090}
+      PLATFORM_ADMIN_BOOTSTRAP_USERNAME: ${PLATFORM_ADMIN_BOOTSTRAP_USERNAME:-platform_admin}
+      PLATFORM_ADMIN_BOOTSTRAP_PASSWORD: ${PLATFORM_ADMIN_BOOTSTRAP_PASSWORD:-admin123}
+      PLATFORM_ADMIN_JWT_SECRET: ${PLATFORM_ADMIN_JWT_SECRET}
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  gateway:
+    image: ${GHCR_NAMESPACE}/shuotu-erp-gateway:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+      NODE_ENV: production
+      SERVICE_NAME: gateway
+      PORT: 5000
+      HTTP_PORT: 5000
+      HTTPS_ENABLED: false
+      SYNC_ENGINE_HOST: sync-engine
+      OMS_HOST: oms
+      WMS_HOST: wms
+      PMS_HOST: pms
+      OSS_HOST: oss
+      MISC_HOST: misc
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  sync-engine:
+    image: ${GHCR_NAMESPACE}/shuotu-erp-sync-engine:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+      NODE_ENV: production
+      DB_AUTO_SYNC: "false"
+      SERVICE_NAME: sync-engine
+      PORT: 5001
+      FRONTEND_URL: ${FRONTEND_URL}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  oms:
+    image: ${GHCR_NAMESPACE}/shuotu-erp-oms:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+      NODE_ENV: production
+      DB_AUTO_SYNC: "false"
+      SERVICE_NAME: oms
+      PORT: 5002
+      SYNC_ENGINE_HOST: sync-engine
+      SYNC_ENGINE_PORT: 5001
+      SYNC_ENGINE_URL: http://sync-engine:5001
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      sync-engine:
+        condition: service_started
+
+  wms:
+    image: ${GHCR_NAMESPACE}/shuotu-erp-wms:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+      NODE_ENV: production
+      DB_AUTO_SYNC: "false"
+      SERVICE_NAME: wms
+      PORT: 5003
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  pms:
+    image: ${GHCR_NAMESPACE}/shuotu-erp-pms:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+      NODE_ENV: production
+      DB_AUTO_SYNC: "false"
+      SERVICE_NAME: pms
+      PORT: 5004
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  misc:
+    image: ${GHCR_NAMESPACE}/shuotu-erp-misc:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+      NODE_ENV: production
+      DB_AUTO_SYNC: "false"
+      SERVICE_NAME: misc
+      PORT: 5005
+    volumes:
+      - misc-uploads:/app/services/misc/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  oss:
+    image: ${GHCR_NAMESPACE}/shuotu-erp-oss:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      NODE_ENV: production
+      SERVICE_NAME: oss
+      PORT: 3001
+      OSS_SECRET_KEY: ${OSS_SECRET_KEY}
+      FILE_RETENTION_HOURS: ${FILE_RETENTION_HOURS:-24}
+      DEFAULT_EXPIRES_IN: ${DEFAULT_EXPIRES_IN:-7200}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+    volumes:
+      - oss-storage:/app/services/oss/storage
+
+  webhook:
+    image: ${GHCR_NAMESPACE}/shuotu-erp-webhook:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+      NODE_ENV: production
+      WEBHOOK_HTTP_PORT: 8080
+      WEBHOOK_HTTPS_PORT: 8678
+      TEMU_APP_KEY: ${TEMU_APP_KEY:-}
+      TEMU_APP_SECRET: ${TEMU_APP_SECRET:-}
+      TIKTOK_APP_KEY: ${TIKTOK_APP_KEY:-}
+      TIKTOK_APP_SECRET: ${TIKTOK_APP_SECRET:-}
+      SHEIN_FULL_APP_ID: ${SHEIN_FULL_APP_ID:-}
+      SHEIN_FULL_APP_SECRET_KEY: ${SHEIN_FULL_APP_SECRET_KEY:-}
+    ports:
+      - "${WEBHOOK_HTTP_BIND_PORT:-8080}:8080"
+      - "${WEBHOOK_HTTPS_BIND_PORT:-8678}:8678"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+volumes:
+  mysql-data:
+  redis-data:
+  rabbitmq-data:
+  oss-storage:
+  misc-uploads:

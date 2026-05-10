@@ -1,10 +1,47 @@
 import React, { useState, useEffect } from 'react';
-import { Table, Button, Space, Select, message, Tag, Modal, Form, Input, InputNumber, DatePicker, Card, Statistic, Row, Col, Upload, Tooltip } from 'antd';
-import { PlusOutlined, ImportOutlined, ExportOutlined, SearchOutlined, InboxOutlined, UploadOutlined } from '@ant-design/icons';
+import { Table, Button, Space, Select, message, Tag, Modal, Form, Input, InputNumber, Card, Statistic, Row, Col } from 'antd';
+import { PlusOutlined, ImportOutlined, ExportOutlined, SearchOutlined, InboxOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 
 const { Option } = Select;
 const { TextArea } = Input;
+
+const mapReferenceTypeToInboundType = (referenceType) => {
+  switch ((referenceType || '').toUpperCase()) {
+    case 'PURCHASE':
+      return 'purchase';
+    case 'RETURN':
+      return 'return';
+    case 'TRANSFER':
+      return 'transfer';
+    default:
+      return 'other';
+  }
+};
+
+const mapInboundTypeToReferenceType = (inboundType) => {
+  switch (inboundType) {
+    case 'purchase':
+      return 'PURCHASE';
+    case 'return':
+      return 'RETURN';
+    case 'transfer':
+      return 'TRANSFER';
+    default:
+      return 'OTHER';
+  }
+};
+
+const normalizeInboundRecord = (record = {}) => ({
+  ...record,
+  inbound_code: record.referenceNo || `IN-${record.id}`,
+  inbound_type: mapReferenceTypeToInboundType(record.referenceType),
+  related_order_code: record.referenceNo || '-',
+  operator_name: record.operatorName || '-',
+  total_quantity: Math.abs(Number(record.quantity || 0)),
+  inbound_quantity: Math.abs(Number(record.quantity || 0)),
+  status: 'completed'
+});
 
 function ProductInbound() {
   const [loading, setLoading] = useState(false);
@@ -15,6 +52,7 @@ function ProductInbound() {
   const [currentRecord, setCurrentRecord] = useState(null);
   const [form] = Form.useForm();
   const [searchForm] = Form.useForm();
+  const [warehouseList, setWarehouseList] = useState([]);
   const [stats, setStats] = useState({
     totalOrders: 0,
     pendingOrders: 0,
@@ -25,7 +63,20 @@ function ProductInbound() {
   // 获取入库单列表
   useEffect(() => {
     fetchInboundList();
+    fetchWarehouses();
   }, [pagination.current, pagination.pageSize]);
+
+  const fetchWarehouses = async () => {
+    try {
+      const response = await fetch('/api/inventory/warehouses');
+      const data = await response.json();
+      if (data.success) {
+        setWarehouseList(data.data || []);
+      }
+    } catch (error) {
+      console.error('获取仓库列表失败:', error);
+    }
+  };
 
   const fetchInboundList = async () => {
     setLoading(true);
@@ -34,20 +85,39 @@ function ProductInbound() {
       const params = new URLSearchParams({
         page: pagination.current,
         pageSize: pagination.pageSize,
-        ...searchValues
+        operationType: 'INBOUND'
       });
+
+      if (searchValues.reference_no) {
+        params.set('referenceNo', searchValues.reference_no);
+      }
+      if (searchValues.inbound_type) {
+        params.set('referenceType', mapInboundTypeToReferenceType(searchValues.inbound_type));
+      }
+      if (searchValues.warehouse_id) {
+        params.set('warehouseId', searchValues.warehouse_id);
+      }
+      if (searchValues.sku_code) {
+        params.set('skuId', searchValues.sku_code);
+      }
+      if (searchValues.status && searchValues.status !== 'completed') {
+        setInboundList([]);
+        setPagination(prev => ({ ...prev, total: 0 }));
+        setStats({ totalOrders: 0, pendingOrders: 0, completedOrders: 0, totalQuantity: 0 });
+        return;
+      }
       
-      const response = await fetch(`/api/wms/inbound?${params}`);
+      const response = await fetch(`/api/inventory/logs?${params}`);
       const data = await response.json();
       
       if (data.success) {
-        setInboundList(data.data?.list || []);
+        setInboundList((data.data?.list || []).map(normalizeInboundRecord));
         setPagination(prev => ({ ...prev, total: data.data?.total || 0 }));
-        setStats(data.data?.stats || {
-          totalOrders: 0,
+        setStats({
+          totalOrders: data.data?.total || 0,
           pendingOrders: 0,
-          completedOrders: 0,
-          totalQuantity: 0
+          completedOrders: data.data?.total || 0,
+          totalQuantity: Math.abs(Number(data.data?.stats?.totalQuantity || 0))
         });
       } else {
         message.error(data.message || '获取入库单列表失败');
@@ -63,84 +133,36 @@ function ProductInbound() {
   // 创建入库单
   const handleCreate = async (values) => {
     try {
-      const response = await fetch('/api/wms/inbound', {
+      const currentUser = JSON.parse(localStorage.getItem('user') || 'null');
+      const response = await fetch('/api/inventory/inbound', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...values,
-          expected_date: values.expected_date?.format('YYYY-MM-DD')
+          skuId: values.sku_code,
+          quantity: values.total_quantity,
+          warehouseId: values.warehouse_id,
+          referenceNo: values.related_order_code,
+          referenceType: mapInboundTypeToReferenceType(values.inbound_type),
+          operatorId: currentUser?.id,
+          operatorName: currentUser?.username || currentUser?.name,
+          remark: values.remark
         })
       });
       
       const data = await response.json();
       
       if (data.success) {
-        message.success('创建入库单成功');
+        message.success('入库成功');
         setModalVisible(false);
         form.resetFields();
         fetchInboundList();
       } else {
-        message.error(data.message || '创建失败');
+        message.error(data.message || '入库失败');
       }
     } catch (error) {
-      console.error('创建入库单失败:', error);
-      message.error('创建失败: ' + error.message);
+      console.error('入库失败:', error);
+      message.error('入库失败: ' + error.message);
     }
-  };
-
-
-  // 确认入库
-  const handleConfirmInbound = async (record) => {
-    Modal.confirm({
-      title: '确认入库',
-      content: `确定要将入库单 ${record.inbound_code} 标记为已入库吗？`,
-      onOk: async () => {
-        try {
-          const response = await fetch(`/api/wms/inbound/${record.id}/confirm`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-          });
-          
-          const data = await response.json();
-          
-          if (data.success) {
-            message.success('入库确认成功');
-            fetchInboundList();
-          } else {
-            message.error(data.message || '操作失败');
-          }
-        } catch (error) {
-          message.error('操作失败: ' + error.message);
-        }
-      }
-    });
-  };
-
-  // 取消入库单
-  const handleCancel = async (record) => {
-    Modal.confirm({
-      title: '取消入库单',
-      content: `确定要取消入库单 ${record.inbound_code} 吗？`,
-      onOk: async () => {
-        try {
-          const response = await fetch(`/api/wms/inbound/${record.id}/cancel`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-          });
-          
-          const data = await response.json();
-          
-          if (data.success) {
-            message.success('入库单已取消');
-            fetchInboundList();
-          } else {
-            message.error(data.message || '操作失败');
-          }
-        } catch (error) {
-          message.error('操作失败: ' + error.message);
-        }
-      }
-    });
   };
 
   // 查看详情
@@ -199,9 +221,9 @@ function ProductInbound() {
       render: (text) => text || '-'
     },
     {
-      title: '供应商',
-      dataIndex: 'supplier_name',
-      key: 'supplier_name',
+      title: '操作人',
+      dataIndex: 'operator_name',
+      key: 'operator_name',
       width: 150,
       ellipsis: true
     },
@@ -222,13 +244,6 @@ function ProductInbound() {
           {val || 0}
         </span>
       )
-    },
-    {
-      title: '预计到货日期',
-      dataIndex: 'expected_date',
-      key: 'expected_date',
-      width: 120,
-      render: (date) => date ? dayjs(date).format('YYYY-MM-DD') : '-'
     },
     {
       title: '状态',
@@ -268,16 +283,6 @@ function ProductInbound() {
           <Button type="link" size="small" onClick={() => handleViewDetail(record)}>
             详情
           </Button>
-          {record.status === 'pending' && (
-            <>
-              <Button type="link" size="small" onClick={() => handleConfirmInbound(record)}>
-                确认入库
-              </Button>
-              <Button type="link" size="small" danger onClick={() => handleCancel(record)}>
-                取消
-              </Button>
-            </>
-          )}
         </Space>
       )
     }
@@ -291,7 +296,7 @@ function ProductInbound() {
         <Col span={6}>
           <Card>
             <Statistic
-              title="入库单总数"
+              title="入库记录总数"
               value={stats.totalOrders}
               prefix={<InboxOutlined />}
             />
@@ -300,7 +305,7 @@ function ProductInbound() {
         <Col span={6}>
           <Card>
             <Statistic
-              title="待入库"
+              title="待处理"
               value={stats.pendingOrders}
               valueStyle={{ color: '#faad14' }}
             />
@@ -309,7 +314,7 @@ function ProductInbound() {
         <Col span={6}>
           <Card>
             <Statistic
-              title="已完成"
+              title="已入库"
               value={stats.completedOrders}
               valueStyle={{ color: '#52c41a' }}
             />
@@ -329,8 +334,8 @@ function ProductInbound() {
       {/* 搜索栏 */}
       <Card style={{ marginBottom: 16 }}>
         <Form form={searchForm} layout="inline" onFinish={fetchInboundList}>
-          <Form.Item name="inbound_code" label="入库单号">
-            <Input placeholder="请输入入库单号" allowClear style={{ width: 160 }} />
+          <Form.Item name="reference_no" label="关联单号">
+            <Input placeholder="请输入关联单号" allowClear style={{ width: 160 }} />
           </Form.Item>
           <Form.Item name="inbound_type" label="入库类型">
             <Select placeholder="全部类型" allowClear style={{ width: 120 }}>
@@ -340,12 +345,21 @@ function ProductInbound() {
               <Option value="other">其他入库</Option>
             </Select>
           </Form.Item>
+          <Form.Item name="sku_code" label="SKU编码">
+            <Input placeholder="请输入SKU编码" allowClear style={{ width: 160 }} />
+          </Form.Item>
+          <Form.Item name="warehouse_id" label="仓库">
+            <Select placeholder="全部仓库" allowClear style={{ width: 140 }}>
+              {warehouseList.map(warehouse => (
+                <Option key={warehouse.id} value={warehouse.warehouseId}>
+                  {warehouse.name}
+                </Option>
+              ))}
+            </Select>
+          </Form.Item>
           <Form.Item name="status" label="状态">
             <Select placeholder="全部状态" allowClear style={{ width: 120 }}>
-              <Option value="pending">待入库</Option>
-              <Option value="partial">部分入库</Option>
               <Option value="completed">已完成</Option>
-              <Option value="cancelled">已取消</Option>
             </Select>
           </Form.Item>
           <Form.Item>
@@ -365,7 +379,7 @@ function ProductInbound() {
       <div style={{ marginBottom: 16 }}>
         <Space>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setModalVisible(true)}>
-            新建入库单
+            手工入库
           </Button>
           <Button icon={<ImportOutlined />}>
             批量导入
@@ -394,13 +408,33 @@ function ProductInbound() {
 
       {/* 新建入库单弹窗 */}
       <Modal
-        title="新建入库单"
+        title="手工入库"
         open={modalVisible}
         onCancel={() => { setModalVisible(false); form.resetFields(); }}
         onOk={() => form.submit()}
         width={600}
       >
         <Form form={form} layout="vertical" onFinish={handleCreate}>
+          <Form.Item
+            name="sku_code"
+            label="SKU编码"
+            rules={[{ required: true, message: '请输入SKU编码' }]}
+          >
+            <Input placeholder="请输入SKU编码" />
+          </Form.Item>
+          <Form.Item
+            name="warehouse_id"
+            label="仓库"
+            rules={[{ required: true, message: '请选择仓库' }]}
+          >
+            <Select placeholder="请选择仓库">
+              {warehouseList.map(warehouse => (
+                <Option key={warehouse.id} value={warehouse.warehouseId}>
+                  {warehouse.name}
+                </Option>
+              ))}
+            </Select>
+          </Form.Item>
           <Form.Item
             name="inbound_type"
             label="入库类型"
@@ -416,18 +450,12 @@ function ProductInbound() {
           <Form.Item name="related_order_code" label="关联单号">
             <Input placeholder="请输入关联的采购单号或其他单号" />
           </Form.Item>
-          <Form.Item name="supplier_name" label="供应商">
-            <Input placeholder="请输入供应商名称" />
-          </Form.Item>
           <Form.Item
             name="total_quantity"
-            label="预计入库数量"
-            rules={[{ required: true, message: '请输入预计入库数量' }]}
+            label="入库数量"
+            rules={[{ required: true, message: '请输入入库数量' }]}
           >
             <InputNumber min={1} placeholder="请输入数量" style={{ width: '100%' }} />
-          </Form.Item>
-          <Form.Item name="expected_date" label="预计到货日期">
-            <DatePicker style={{ width: '100%' }} placeholder="请选择预计到货日期" />
           </Form.Item>
           <Form.Item name="remark" label="备注">
             <TextArea rows={3} placeholder="请输入备注信息" />
@@ -437,7 +465,7 @@ function ProductInbound() {
 
       {/* 入库单详情弹窗 */}
       <Modal
-        title={`入库单详情 - ${currentRecord?.inbound_code || ''}`}
+        title={`入库详情 - ${currentRecord?.inbound_code || ''}`}
         open={detailModalVisible}
         onCancel={() => { setDetailModalVisible(false); setCurrentRecord(null); }}
         footer={[
@@ -461,16 +489,12 @@ function ProductInbound() {
                 <div>{getStatusTag(currentRecord.status)}</div>
               </Col>
               <Col span={12}>
-                <div style={{ color: '#666' }}>供应商</div>
-                <div style={{ fontWeight: 500 }}>{currentRecord.supplier_name || '-'}</div>
+                <div style={{ color: '#666' }}>操作人</div>
+                <div style={{ fontWeight: 500 }}>{currentRecord.operator_name || '-'}</div>
               </Col>
               <Col span={12}>
                 <div style={{ color: '#666' }}>关联单号</div>
                 <div>{currentRecord.related_order_code || '-'}</div>
-              </Col>
-              <Col span={12}>
-                <div style={{ color: '#666' }}>预计到货日期</div>
-                <div>{currentRecord.expected_date ? dayjs(currentRecord.expected_date).format('YYYY-MM-DD') : '-'}</div>
               </Col>
               <Col span={12}>
                 <div style={{ color: '#666' }}>预计入库数量</div>

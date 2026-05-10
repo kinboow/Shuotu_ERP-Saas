@@ -21,6 +21,7 @@ const connectDatabase = async () => {
     console.log('[Sync-Engine] 数据库连接成功');
   } catch (error) {
     console.error('[Sync-Engine] 数据库连接失败:', error.message);
+    throw error;
   }
 };
 

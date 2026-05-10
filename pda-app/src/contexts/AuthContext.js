@@ -5,6 +5,35 @@ const AuthContext = createContext(null);
 
 const API_URL = process.env.REACT_APP_API_URL || 'https://erp.hlsd.work:5000';
 
+const applySessionHeaders = (token, userData = null) => {
+  if (token) {
+    axios.defaults.headers.common.Authorization = `Bearer ${token}`;
+  } else {
+    delete axios.defaults.headers.common.Authorization;
+  }
+
+  const enterpriseId = userData?.enterprise_id;
+  if (enterpriseId !== null && enterpriseId !== undefined) {
+    axios.defaults.headers.common['x-enterprise-id'] = enterpriseId;
+  } else {
+    delete axios.defaults.headers.common['x-enterprise-id'];
+  }
+};
+
+const persistSession = (token, userData) => {
+  localStorage.setItem('pda_token', token);
+  localStorage.setItem('pda_user', JSON.stringify(userData));
+  localStorage.setItem('userInfo', JSON.stringify(userData));
+  localStorage.setItem('token', token);
+};
+
+const clearSession = () => {
+  localStorage.removeItem('pda_token');
+  localStorage.removeItem('pda_user');
+  localStorage.removeItem('userInfo');
+  localStorage.removeItem('token');
+};
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -19,8 +48,9 @@ export const AuthProvider = ({ children }) => {
         const userData = JSON.parse(savedUser);
         setUser(userData);
         setIsAuthenticated(true);
+        applySessionHeaders(token, userData);
         // 验证token是否有效
-        verifyToken(token);
+        verifyToken(token, userData);
       } catch (error) {
         console.error('解析用户信息失败:', error);
         logout();
@@ -29,16 +59,33 @@ export const AuthProvider = ({ children }) => {
     setLoading(false);
   }, []);
 
-  const verifyToken = async (token) => {
+  const verifyToken = async (token, currentUser = null) => {
     try {
+      const enterpriseId = currentUser?.enterprise_id;
       const response = await axios.post(
         `${API_URL}/api/pda-auth/verify-token`,
         { token },
-        { headers: { Authorization: `Bearer ${token}` } }
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            ...(enterpriseId !== null && enterpriseId !== undefined ? { 'x-enterprise-id': enterpriseId } : {})
+          }
+        }
       );
       
       if (!response.data.success) {
         logout();
+        return;
+      }
+
+      if (response.data.user) {
+        const nextUser = {
+          ...(currentUser || {}),
+          ...response.data.user
+        };
+        setUser(nextUser);
+        persistSession(token, nextUser);
+        applySessionHeaders(token, nextUser);
       }
     } catch (error) {
       console.error('Token验证失败:', error);
@@ -49,22 +96,21 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const login = async (username, password, userType) => {
+  const login = async (username, password, userType, enterpriseCode) => {
     try {
       const response = await axios.post(`${API_URL}/api/pda-auth/pda-login`, {
         username,
         password,
-        userType
+        userType,
+        enterpriseCode
       });
       
       if (response.data.success) {
         const { token, user: userData } = response.data;
         setUser(userData);
         setIsAuthenticated(true);
-        localStorage.setItem('pda_token', token);
-        localStorage.setItem('pda_user', JSON.stringify(userData));
-        localStorage.setItem('userInfo', JSON.stringify(userData)); // 兼容其他页面
-        localStorage.setItem('token', token); // 兼容其他页面
+        applySessionHeaders(token, userData);
+        persistSession(token, userData);
         return { success: true };
       } else {
         return { success: false, message: response.data.message || '登录失败' };
@@ -86,10 +132,8 @@ export const AuthProvider = ({ children }) => {
   const logout = () => {
     setUser(null);
     setIsAuthenticated(false);
-    localStorage.removeItem('pda_token');
-    localStorage.removeItem('pda_user');
-    localStorage.removeItem('userInfo');
-    localStorage.removeItem('token');
+    applySessionHeaders(null, null);
+    clearSession();
   };
 
   if (loading) {

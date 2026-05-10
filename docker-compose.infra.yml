@@ -14,9 +14,8 @@ services:
       TZ: Asia/Shanghai
     volumes:
       - mysql-data:/var/lib/mysql
-      - ./services/database/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
-      - ./services/database/courier_reports.sql:/docker-entrypoint-initdb.d/02-courier_reports.sql:ro
-      - ./services/database/pda_login_enhancement.sql:/docker-entrypoint-initdb.d/03-pda_login_enhancement.sql:ro
+      - ./erp.sql:/docker-entrypoint-initdb.d/01-erp.sql:ro
+      - ./services/database/saas_core.sql:/docker-entrypoint-initdb.d/02-saas-core.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -proot123 --silent"]
       interval: 10s

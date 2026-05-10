@@ -28,20 +28,23 @@ const StockLog = require('./stock-log')(sequelize);
 Inventory.belongsTo(Warehouse, { foreignKey: 'warehouseId', targetKey: 'warehouseId', as: 'warehouse' });
 Warehouse.hasMany(Inventory, { foreignKey: 'warehouseId', sourceKey: 'warehouseId', as: 'inventories' });
 
+const shouldAutoSync = process.env.DB_AUTO_SYNC === 'true' || process.env.NODE_ENV === 'development';
+
 // 同步数据库
 const syncDatabase = async () => {
   try {
     await sequelize.authenticate();
     console.log('[WMS] 数据库连接成功');
-    
-    if (process.env.NODE_ENV === 'development') {
+
+    if (shouldAutoSync) {
       await sequelize.sync({ alter: true });
       console.log('[WMS] 数据表同步完成');
-      
+
       // 创建默认仓库
-      const [defaultWarehouse] = await Warehouse.findOrCreate({
-        where: { warehouseId: 'DEFAULT' },
+      await Warehouse.findOrCreate({
+        where: { enterpriseId: 0, warehouseId: 'DEFAULT' },
         defaults: {
+          enterpriseId: 0,
           warehouseId: 'DEFAULT',
           name: '默认仓库',
           code: 'WH001',
@@ -53,6 +56,7 @@ const syncDatabase = async () => {
     }
   } catch (error) {
     console.error('[WMS] 数据库连接失败:', error.message);
+    throw error;
   }
 };
 

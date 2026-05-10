@@ -11,6 +11,12 @@ module.exports = (sequelize) => {
       primaryKey: true,
       autoIncrement: true
     },
+    enterpriseId: {
+      type: DataTypes.BIGINT,
+      allowNull: false,
+      defaultValue: 0,
+      field: 'enterprise_id'
+    },
     skuId: {
       type: DataTypes.STRING(32),
       allowNull: false,
@@ -71,6 +77,9 @@ module.exports = (sequelize) => {
     createdAt: 'created_at',
     updatedAt: false,
     indexes: [
+      { fields: ['enterprise_id'] },
+      { fields: ['enterprise_id', 'sku_id'] },
+      { fields: ['enterprise_id', 'warehouse_id'] },
       { fields: ['sku_id'] },
       { fields: ['warehouse_id'] },
       { fields: ['operation_type'] },

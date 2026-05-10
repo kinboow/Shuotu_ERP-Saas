@@ -5,6 +5,7 @@
 const express = require('express');
 const router = express.Router();
 const orderService = require('../services/order.service');
+const { getRequiredEnterpriseIdFromRequest } = require('../services/tenant-context.service');
 
 /**
  * 查询订单列表
@@ -12,7 +13,8 @@ const orderService = require('../services/order.service');
  */
 router.get('/', async (req, res) => {
   try {
-    const result = await orderService.queryOrders(req.query);
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
+    const result = await orderService.queryOrders(req.query, enterpriseId);
     res.json({ success: true, data: result });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -25,7 +27,8 @@ router.get('/', async (req, res) => {
  */
 router.get('/:id', async (req, res) => {
   try {
-    const order = await orderService.getOrderDetail(req.params.id);
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
+    const order = await orderService.getOrderDetail(req.params.id, enterpriseId);
     res.json({ success: true, data: order });
   } catch (error) {
     res.status(404).json({ success: false, message: error.message });
@@ -38,7 +41,8 @@ router.get('/:id', async (req, res) => {
  */
 router.post('/', async (req, res) => {
   try {
-    const result = await orderService.createOrder(req.body, req.body.source || 'API');
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
+    const result = await orderService.createOrder(req.body, req.body.source || 'API', enterpriseId);
     res.json({ success: true, data: result });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -51,11 +55,12 @@ router.post('/', async (req, res) => {
  */
 router.post('/batch', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { orders, source } = req.body;
     if (!orders || !Array.isArray(orders)) {
       return res.status(400).json({ success: false, message: '缺少orders数组' });
     }
-    const result = await orderService.batchUpsert(orders, source || 'SYNC');
+    const result = await orderService.batchUpsert(orders, source || 'SYNC', enterpriseId);
     res.json({ success: true, data: result });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -68,6 +73,7 @@ router.post('/batch', async (req, res) => {
  */
 router.put('/:id/status', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { status, operatorId, operatorName, detail } = req.body;
     if (!status) {
       return res.status(400).json({ success: false, message: '缺少status' });
@@ -76,7 +82,8 @@ router.put('/:id/status', async (req, res) => {
       operatorId,
       operatorName,
       source: 'API',
-      detail
+      detail,
+      enterpriseId
     });
     res.json({ success: true, data: order });
   } catch (error) {
@@ -90,6 +97,7 @@ router.put('/:id/status', async (req, res) => {
  */
 router.post('/:id/ship', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { company, companyCode, trackingNo, operatorId, operatorName } = req.body;
     if (!trackingNo) {
       return res.status(400).json({ success: false, message: '缺少物流单号' });
@@ -98,7 +106,7 @@ router.post('/:id/ship', async (req, res) => {
       company,
       companyCode,
       trackingNo
-    }, { operatorId, operatorName });
+    }, { operatorId, operatorName, enterpriseId });
     res.json({ success: true, data: order });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -111,12 +119,14 @@ router.post('/:id/ship', async (req, res) => {
  */
 router.post('/:id/cancel', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { reason, operatorId, operatorName } = req.body;
     const order = await orderService.updateStatus(req.params.id, 'CANCELLED', {
       operatorId,
       operatorName,
       source: 'API',
-      detail: { reason }
+      detail: { reason },
+      enterpriseId
     });
     res.json({ success: true, data: order });
   } catch (error) {
@@ -130,7 +140,8 @@ router.post('/:id/cancel', async (req, res) => {
  */
 router.get('/stats/summary', async (req, res) => {
   try {
-    const stats = await orderService.getStatistics(req.query);
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
+    const stats = await orderService.getStatistics(req.query, enterpriseId);
     res.json({ success: true, data: stats });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

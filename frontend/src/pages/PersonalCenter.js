@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, Form, Input, Button, message, Avatar, Row, Col, Divider, Tabs, Descriptions, Tag, Upload, Spin } from 'antd';
 import { UserOutlined, LockOutlined, MailOutlined, PhoneOutlined, SafetyOutlined, LoadingOutlined, PlusOutlined } from '@ant-design/icons';
 import { authAPI, ossAPI, usersAPI } from '../api';
+import { clearAuthSession } from '../utils/authStorage';
 
 function PersonalCenter() {
   const [profileForm] = Form.useForm();
@@ -108,8 +109,7 @@ function PersonalCenter() {
         passwordForm.resetFields();
         // 清除登录信息并跳转到登录页
         setTimeout(() => {
-          localStorage.removeItem('token');
-          localStorage.removeItem('user');
+          clearAuthSession();
           window.location.href = '/login';
         }, 1500);
       } else {

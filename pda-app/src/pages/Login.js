@@ -16,7 +16,7 @@ const Login = () => {
 
   const onFinish = async (values) => {
     setLoading(true);
-    const result = await login(values.username, values.password, userType);
+    const result = await login(values.username, values.password, userType, values.enterpriseCode);
     setLoading(false);
     
     if (result.success) {
@@ -104,6 +104,16 @@ const Login = () => {
             </Button>
           }
         >
+          <Form.Item
+            name="enterpriseCode"
+            rules={[{ required: true, message: '请输入企业编码' }]}
+          >
+            <Input
+              placeholder="请输入企业编码"
+              clearable
+              style={{ fontSize: 16, textTransform: 'uppercase' }}
+            />
+          </Form.Item>
           <Form.Item
             name="username"
             rules={[{ required: true, message: '请输入用户名' }]}

@@ -163,6 +163,13 @@
   color: #bbb;
 }
 
+.form-textarea {
+  min-height: 88px;
+  height: auto;
+  padding: 12px 16px;
+  resize: vertical;
+}
+
 /* 忘记密码链接 */
 .forgot-password-wrapper {
   text-align: right;

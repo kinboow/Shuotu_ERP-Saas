@@ -9,6 +9,7 @@ const express = require('express');
 const router = express.Router();
 const { sequelize } = require('../models');
 const { QueryTypes } = require('sequelize');
+const { getRequiredEnterpriseIdFromRequest } = require('../services/tenant-context.service');
 
 // 平台表配置
 const platformTables = {
@@ -26,6 +27,7 @@ const platformTables = {
  */
 router.get('/', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { 
       page = 1, 
       limit = 20, 
@@ -59,8 +61,8 @@ router.get('/', async (req, res) => {
       });
     }
 
-    let whereClause = '';
-    const params = {};
+    let whereClause = ' AND po.enterprise_id = :enterpriseId';
+    const params = { enterpriseId };
 
     // 状态筛选
     if (status) {
@@ -199,6 +201,7 @@ router.get('/', async (req, res) => {
  */
 router.get('/stats', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { platform = 'shein' } = req.query;
     const platformKey = platform.toLowerCase();
     const tables = platformTables[platformKey];
@@ -216,9 +219,10 @@ router.get('/stats', async (req, res) => {
         SUM(CASE WHEN order_type = 1 THEN 1 ELSE 0 END) as urgent_count,
         SUM(CASE WHEN order_type = 2 THEN 1 ELSE 0 END) as stock_count
       FROM ${tables.orders}
+      WHERE enterprise_id = :enterpriseId
     `;
 
-    const result = await sequelize.query(query, { type: QueryTypes.SELECT });
+    const result = await sequelize.query(query, { replacements: { enterpriseId }, type: QueryTypes.SELECT });
     res.json({ success: true, data: result[0] || { total: 0, pending: 0, shipped: 0, received: 0, urgent_count: 0, stock_count: 0 } });
   } catch (error) {
     res.json({ success: false, message: '获取统计信息失败: ' + error.message });
@@ -231,6 +235,7 @@ router.get('/stats', async (req, res) => {
  */
 router.get('/shops', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { platform = 'shein' } = req.query;
     const platformKey = platform.toLowerCase();
     const tables = platformTables[platformKey];
@@ -244,11 +249,11 @@ router.get('/shops', async (req, res) => {
       SELECT DISTINCT po.shop_id, COALESCE(s.shop_name, CONCAT('店铺', po.shop_id)) as shop_name
       FROM ${tables.orders} po
       LEFT JOIN shein_full_shops s ON po.shop_id = s.id
-      WHERE po.shop_id IS NOT NULL
+      WHERE po.shop_id IS NOT NULL AND po.enterprise_id = :enterpriseId
       ORDER BY shop_name
     `;
 
-    const result = await sequelize.query(query, { type: QueryTypes.SELECT });
+    const result = await sequelize.query(query, { replacements: { enterpriseId }, type: QueryTypes.SELECT });
     res.json({ success: true, data: result });
   } catch (error) {
     res.json({ success: false, message: '获取店铺列表失败: ' + error.message });
@@ -261,6 +266,7 @@ router.get('/shops', async (req, res) => {
  */
 router.get('/:id', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { id } = req.params;
     const { platform = 'shein' } = req.query;
     const platformKey = platform.toLowerCase();
@@ -270,8 +276,8 @@ router.get('/:id', async (req, res) => {
       return res.json({ success: false, message: `${platform.toUpperCase()}平台采购单功能暂未开放` });
     }
 
-    const orderQuery = `SELECT po.* FROM ${tables.orders} po WHERE po.id = :id`;
-    const orders = await sequelize.query(orderQuery, { replacements: { id }, type: QueryTypes.SELECT });
+    const orderQuery = `SELECT po.* FROM ${tables.orders} po WHERE po.id = :id AND po.enterprise_id = :enterpriseId`;
+    const orders = await sequelize.query(orderQuery, { replacements: { id, enterpriseId }, type: QueryTypes.SELECT });
 
     if (orders.length === 0) {
       return res.json({ success: false, message: '采购单不存在' });
@@ -293,6 +299,7 @@ router.get('/:id', async (req, res) => {
  */
 router.post('/print-barcode', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { shopId, data, type = 2, printFormatType = 1 } = req.body;
 
     if (!shopId) {
@@ -304,13 +311,18 @@ router.post('/print-barcode', async (req, res) => {
 
     // 代理到 sync-engine 服务
     const axios = require('axios');
-    const syncEngineUrl = `http://localhost:${process.env.SYNC_ENGINE_PORT || 5001}`;
+    const syncEngineUrl = process.env.SYNC_ENGINE_URL || `http://${process.env.SYNC_ENGINE_HOST || 'localhost'}:${process.env.SYNC_ENGINE_PORT || 5001}`;
     const response = await axios.post(`${syncEngineUrl}/api/shein-full/print-barcode`, {
       shopId,
       data,
       type,
       printFormatType
-    }, { timeout: 30000 });
+    }, {
+      timeout: 30000,
+      headers: {
+        'x-enterprise-id': enterpriseId
+      }
+    });
 
     res.json(response.data);
   } catch (error) {
@@ -328,6 +340,7 @@ router.post('/print-barcode', async (req, res) => {
  */
 router.post('/sku-categories', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { shopId, skus } = req.body;
 
     if (!shopId) {
@@ -338,11 +351,16 @@ router.post('/sku-categories', async (req, res) => {
     }
 
     const axios = require('axios');
-    const syncEngineUrl = `http://localhost:${process.env.SYNC_ENGINE_PORT || 5001}`;
+    const syncEngineUrl = process.env.SYNC_ENGINE_URL || `http://${process.env.SYNC_ENGINE_HOST || 'localhost'}:${process.env.SYNC_ENGINE_PORT || 5001}`;
     const response = await axios.post(`${syncEngineUrl}/api/shein-full/sku-categories`, {
       shopId,
       skus
-    }, { timeout: 30000 });
+    }, {
+      timeout: 30000,
+      headers: {
+        'x-enterprise-id': enterpriseId
+      }
+    });
 
     res.json(response.data);
   } catch (error) {

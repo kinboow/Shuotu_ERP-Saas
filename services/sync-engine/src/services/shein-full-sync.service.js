@@ -7,6 +7,7 @@ const { v4: uuidv4 } = require('uuid');
 const SheinFullAdapter = require('../adapters/shein-full.adapter');
 const { sequelize } = require('../models');
 const { QueryTypes } = require('sequelize');
+const { ensureTenantColumns, normalizeEnterpriseId, getCurrentEnterpriseId } = require('./tenant-context.service');
 
 // 同步任务状态存储（内存中）
 const syncTasksStatus = new Map();
@@ -20,16 +21,35 @@ class SheinFullSyncService {
     this._ensureProductBarcodeColumnPromise = null;
   }
 
+  async getShop(shopId, enterpriseId = undefined) {
+    await ensureTenantColumns();
+
+    const scopedEnterpriseId = normalizeEnterpriseId(enterpriseId ?? getCurrentEnterpriseId());
+    const replacements = [shopId];
+    let query = 'SELECT * FROM shein_full_shops WHERE id = ? AND status = 1';
+
+    if (scopedEnterpriseId !== null) {
+      query += ' AND enterprise_id = ?';
+      replacements.push(scopedEnterpriseId);
+    }
+
+    const [shop] = await this.sequelize.query(query, {
+      replacements,
+      type: QueryTypes.SELECT
+    });
+
+    if (!shop) {
+      throw new Error('店铺不存在或已禁用');
+    }
+
+    return shop;
+  }
+
   /**
    * 获取适配器 - 从shein_full_shops表获取配置
    */
-  async getAdapter(shopId) {
-    const [shops] = await this.sequelize.query(`
-      SELECT * FROM shein_full_shops WHERE id = ? AND status = 1
-    `, { replacements: [shopId], type: QueryTypes.SELECT });
-
-    const shop = shops;
-    if (!shop) throw new Error('店铺不存在或已禁用');
+  async getAdapter(shopId, enterpriseId = undefined) {
+    const shop = await this.getShop(shopId, enterpriseId);
     if (shop.auth_status !== 1) throw new Error('店铺未授权，请先完成授权');
 
     return new SheinFullAdapter({
@@ -57,6 +77,9 @@ class SheinFullSyncService {
 
     // 初始化内存状态
     syncTasksStatus.set(taskId, {
+      shopId,
+      platform,
+      taskType,
       status: 'PENDING',
       progress: 0,
       currentDataType: null,
@@ -193,7 +216,9 @@ class SheinFullSyncService {
    * @param {number} shopId - 店铺ID
    * @returns {Array} 运行中的任务列表
    */
-  getRunningTasksForShop(shopId) {
+  async getRunningTasksForShop(shopId, enterpriseId = undefined) {
+    await this.getShop(shopId, enterpriseId);
+
     const tasks = [];
     for (const [lockKey, taskId] of runningSyncLocks.entries()) {
       if (lockKey.startsWith(`${shopId}_`)) {
@@ -219,13 +244,16 @@ class SheinFullSyncService {
    * @param {object} params - 同步参数
    * @returns {Promise<{taskId: string, isExisting?: boolean}>}
    */
-  async batchSync(shopId, dataTypes, params = {}) {
+  async batchSync(shopId, dataTypes, params = {}, enterpriseId = undefined) {
     console.log(`\n${'='.repeat(60)}`);
     console.log(`[同步任务] 开始批量同步`);
     console.log(`[同步任务] 店铺ID: ${shopId}`);
     console.log(`[同步任务] 数据类型: ${dataTypes.join(', ')}`);
     console.log(`[同步任务] 参数: ${JSON.stringify(params)}`);
     console.log(`${'='.repeat(60)}\n`);
+
+    const shop = await this.getShop(shopId, enterpriseId);
+    const scopedEnterpriseId = Number(shop.enterprise_id) || 0;
 
     // 检查是否有正在运行的任务
     const existingTask = this.checkRunningSyncTask(shopId, dataTypes);
@@ -277,24 +305,24 @@ class SheinFullSyncService {
               case 'stock_orders':
               case 'purchase_orders':
                 console.log(`[同步任务] 📦 调用 syncPurchaseOrders...`);
-                result = await this.syncPurchaseOrders(shopId, params);
+                result = await this.syncPurchaseOrders(shopId, params, scopedEnterpriseId);
                 break;
               case 'delivery_orders':
                 console.log(`[同步任务] 🚚 调用 syncDeliveryOrders...`);
-                result = await this.syncDeliveryOrders(shopId, params);
+                result = await this.syncDeliveryOrders(shopId, params, scopedEnterpriseId);
                 break;
               case 'products':
                 console.log(`[同步任务] 🏷️ 调用 syncProducts...`);
-                result = await this.syncProducts(shopId, params);
+                result = await this.syncProducts(shopId, params, scopedEnterpriseId);
                 break;
               case 'inventory':
                 console.log(`[同步任务] 📊 调用 syncInventory...`);
-                result = await this.syncInventory(shopId, params);
+                result = await this.syncInventory(shopId, params, scopedEnterpriseId);
                 break;
               case 'finance':
               case 'reports':
                 console.log(`[同步任务] 💰 调用 syncReports...`);
-                result = await this.syncReports(shopId, params);
+                result = await this.syncReports(shopId, params, scopedEnterpriseId);
                 break;
               default:
                 result = { error: `未知数据类型: ${dataType}` };
@@ -381,10 +409,12 @@ class SheinFullSyncService {
   /**
    * 同步采购单
    */
-  async syncPurchaseOrders(shopId, params = {}) {
+  async syncPurchaseOrders(shopId, params = {}, enterpriseId = undefined) {
     console.log(`[采购单同步] 开始同步，店铺ID: ${shopId}`);
     
-    const adapter = await this.getAdapter(shopId);
+    const shop = await this.getShop(shopId, enterpriseId);
+    const scopedEnterpriseId = Number(shop.enterprise_id) || 0;
+    const adapter = await this.getAdapter(shopId, scopedEnterpriseId);
     console.log(`[采购单同步] 获取适配器成功`);
     
     let page = 1;
@@ -422,7 +452,7 @@ class SheinFullSyncService {
 
       for (const order of orders) {
         try {
-          await this.savePurchaseOrder(shopId, order);
+          await this.savePurchaseOrder(shopId, order, scopedEnterpriseId);
           successCount++;
           if (successCount % 50 === 0) {
             console.log(`[采购单同步] 已保存${successCount}条...`);
@@ -452,12 +482,20 @@ class SheinFullSyncService {
   /**
    * 保存采购单到数据库
    */
-  async savePurchaseOrder(shopId, order) {
+  async savePurchaseOrder(shopId, order, enterpriseId = undefined) {
+    await ensureTenantColumns();
+
+    const scopedEnterpriseId = normalizeEnterpriseId(enterpriseId);
+    const finalEnterpriseId = scopedEnterpriseId === null
+      ? Number((await this.getShop(shopId)).enterprise_id) || 0
+      : scopedEnterpriseId;
+
     const [existing] = await this.sequelize.query(`
-      SELECT id FROM shein_full_purchase_orders WHERE shop_id = ? AND order_no = ?
-    `, { replacements: [shopId, order.orderNo], type: QueryTypes.SELECT });
+      SELECT id FROM shein_full_purchase_orders WHERE enterprise_id = ? AND shop_id = ? AND order_no = ?
+    `, { replacements: [finalEnterpriseId, shopId, order.orderNo], type: QueryTypes.SELECT });
 
     const orderData = {
+      enterprise_id: finalEnterpriseId,
       shop_id: shopId,
       order_no: order.orderNo,
       order_type: order.type,
@@ -537,8 +575,10 @@ class SheinFullSyncService {
    * 每个间隔内自动翻页直到返回数量<200
    * 连续3个间隔返回0条数据则停止
    */
-  async syncDeliveryOrders(shopId, params = {}) {
-    const adapter = await this.getAdapter(shopId);
+  async syncDeliveryOrders(shopId, params = {}, enterpriseId = undefined) {
+    const shop = await this.getShop(shopId, enterpriseId);
+    const scopedEnterpriseId = Number(shop.enterprise_id) || 0;
+    const adapter = await this.getAdapter(shopId, scopedEnterpriseId);
     const perPage = 200;
     const intervalDays = 60;
     const minYear = 2013;
@@ -626,7 +666,7 @@ class SheinFullSyncService {
     
     for (const delivery of allDeliveries) {
       try {
-        await this.saveDeliveryOrder(shopId, delivery);
+        await this.saveDeliveryOrder(shopId, delivery, scopedEnterpriseId);
         successCount++;
       } catch (err) {
         failCount++;
@@ -644,8 +684,16 @@ class SheinFullSyncService {
    * 保存发货单到数据库（使用原子操作避免并发问题）
    * 使用 INSERT ... ON DUPLICATE KEY UPDATE 确保并发安全
    */
-  async saveDeliveryOrder(shopId, delivery) {
+  async saveDeliveryOrder(shopId, delivery, enterpriseId = undefined) {
+    await ensureTenantColumns();
+
+    const scopedEnterpriseId = normalizeEnterpriseId(enterpriseId);
+    const finalEnterpriseId = scopedEnterpriseId === null
+      ? Number((await this.getShop(shopId)).enterprise_id) || 0
+      : scopedEnterpriseId;
+
     const deliveryData = {
+      enterprise_id: finalEnterpriseId,
       shop_id: shopId,
       delivery_code: delivery.deliveryCode,
       delivery_type: delivery.deliveryType,
@@ -683,8 +731,8 @@ class SheinFullSyncService {
 
     // 获取实际的 delivery_id（无论是新插入还是更新）
     const [row] = await this.sequelize.query(`
-      SELECT id FROM shein_full_delivery_orders WHERE shop_id = ? AND delivery_code = ?
-    `, { replacements: [shopId, delivery.deliveryCode], type: QueryTypes.SELECT });
+      SELECT id FROM shein_full_delivery_orders WHERE enterprise_id = ? AND shop_id = ? AND delivery_code = ?
+    `, { replacements: [finalEnterpriseId, shopId, delivery.deliveryCode], type: QueryTypes.SELECT });
     
     if (!row) {
       console.error(`[发货单] 无法获取delivery_id: shop_id=${shopId}, delivery_code=${delivery.deliveryCode}`);
@@ -720,10 +768,12 @@ class SheinFullSyncService {
   /**
    * 同步商品列表
    */
-  async syncProducts(shopId, params = {}) {
+  async syncProducts(shopId, params = {}, enterpriseId = undefined) {
     console.log(`[商品同步] 开始同步，店铺ID: ${shopId}`);
-    
-    const adapter = await this.getAdapter(shopId);
+
+    const shop = await this.getShop(shopId, enterpriseId);
+    const scopedEnterpriseId = Number(shop.enterprise_id) || 0;
+    const adapter = await this.getAdapter(shopId, scopedEnterpriseId);
     console.log(`[商品同步] 获取适配器成功`);
     
     let totalCount = 0;
@@ -1048,10 +1098,12 @@ class SheinFullSyncService {
   /**
    * 同步报账单
    */
-  async syncReports(shopId, params = {}) {
+  async syncReports(shopId, params = {}, enterpriseId = undefined) {
     console.log(`[报账单同步] 开始同步，店铺ID: ${shopId}`);
-    
-    const adapter = await this.getAdapter(shopId);
+
+    const shop = await this.getShop(shopId, enterpriseId);
+    const scopedEnterpriseId = Number(shop.enterprise_id) || 0;
+    const adapter = await this.getAdapter(shopId, scopedEnterpriseId);
     console.log(`[报账单同步] 获取适配器成功`);
     
     let page = 1;
@@ -1084,8 +1136,8 @@ class SheinFullSyncService {
           await this.saveReport(shopId, report);
 
           if (syncDetails) {
-            await this.syncReportSalesDetails(shopId, report.reportOrderNo, params);
-            await this.syncReportAdjustmentDetails(shopId, report.reportOrderNo, params);
+            await this.syncReportSalesDetails(shopId, report.reportOrderNo, params, scopedEnterpriseId);
+            await this.syncReportAdjustmentDetails(shopId, report.reportOrderNo, params, scopedEnterpriseId);
           }
 
           successCount++;
@@ -1112,8 +1164,8 @@ class SheinFullSyncService {
     return { totalCount, successCount, failCount };
   }
 
-  async syncReportSalesDetails(shopId, reportOrderNo, params = {}) {
-    const adapter = await this.getAdapter(shopId);
+  async syncReportSalesDetails(shopId, reportOrderNo, params = {}, enterpriseId = undefined) {
+    const adapter = await this.getAdapter(shopId, enterpriseId);
     const perPage = Math.min(parseInt(params.reportDetailPerPage || 200, 10), 200);
     let nextQuery = params.query || null;
 
@@ -1134,8 +1186,8 @@ class SheinFullSyncService {
     }
   }
 
-  async syncReportAdjustmentDetails(shopId, reportOrderNo, params = {}) {
-    const adapter = await this.getAdapter(shopId);
+  async syncReportAdjustmentDetails(shopId, reportOrderNo, params = {}, enterpriseId = undefined) {
+    const adapter = await this.getAdapter(shopId, enterpriseId);
     const perPage = Math.min(parseInt(params.reportDetailPerPage || 200, 10), 200);
     let nextQuery = params.query || null;
 
@@ -1285,10 +1337,12 @@ class SheinFullSyncService {
   /**
    * 同步库存
    */
-  async syncInventory(shopId, params = {}) {
+  async syncInventory(shopId, params = {}, enterpriseId = undefined) {
     console.log(`[库存同步] 开始同步，店铺ID: ${shopId}`);
-    
-    const adapter = await this.getAdapter(shopId);
+
+    const shop = await this.getShop(shopId, enterpriseId);
+    const scopedEnterpriseId = Number(shop.enterprise_id) || 0;
+    const adapter = await this.getAdapter(shopId, scopedEnterpriseId);
     console.log(`[库存同步] 获取适配器成功`);
     
     const { skuCodeList, skcNameList, spuNameList, warehouseType = '2' } = params;

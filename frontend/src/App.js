@@ -40,6 +40,8 @@ import PrivateRoute from './components/PrivateRoute';
 import UserManagement from './pages/UserManagement';
 import RoleManagement from './pages/RoleManagement';
 import EnterpriseSettings from './pages/EnterpriseSettings';
+import JoinRequestReview from './pages/JoinRequestReview';
+import EnterpriseOnboarding from './pages/EnterpriseOnboarding';
 import OperationLogs from './pages/OperationLogs';
 import LoginLogs from './pages/LoginLogs';
 import PersonalCenter from './pages/PersonalCenter';
@@ -47,6 +49,8 @@ import PackageVideoList from './pages/PackageVideoList';
 import CourierReports from './pages/CourierReports';
 import LogisticsAccountManagement from './pages/LogisticsAccountManagement';
 import DataTablePage from './pages/DataTablePage';
+import { authAPI } from './api';
+import { clearAuthSession, getStoredAuthState, saveAuthSession } from './utils/authStorage';
 
 const { Header, Content, Sider } = Layout;
 const PRODUCT_SYNC_CURRENT_YEAR = new Date().getFullYear();
@@ -270,6 +274,10 @@ function ProductSyncSettings({ shopId, enabled, syncing, value, onChange, shopMe
 function HeaderOnlyLayout({ children }) {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
+  const [enterprises, setEnterprises] = useState([]);
+  const [currentEnterprise, setCurrentEnterprise] = useState(null);
+  const [requiresEnterpriseSelection, setRequiresEnterpriseSelection] = useState(false);
+  const [switchingEnterprise, setSwitchingEnterprise] = useState(false);
   const [syncModalVisible, setSyncModalVisible] = useState(false);
   const [syncForm] = Form.useForm();
   const [syncing, setSyncing] = useState(false);
@@ -286,14 +294,27 @@ function HeaderOnlyLayout({ children }) {
   const [shopProductSyncSettings, setShopProductSyncSettings] = useState({});
 
   useEffect(() => {
-    const userStr = localStorage.getItem('user');
-    if (userStr) {
-      try {
-        setUser(JSON.parse(userStr));
-      } catch (e) {
-        console.error('解析用户信息失败:', e);
-      }
+    const authState = getStoredAuthState();
+    setUser(authState.user);
+    setEnterprises(authState.enterprises || []);
+    setCurrentEnterprise(authState.currentEnterprise || null);
+    setRequiresEnterpriseSelection(Boolean(authState.requiresEnterpriseSelection));
+
+    if (authState.token) {
+      authAPI.getCurrentUser()
+        .then((response) => {
+          if (response.data.success) {
+            saveAuthSession(response.data.data);
+            const nextState = getStoredAuthState();
+            setUser(nextState.user);
+            setEnterprises(nextState.enterprises || []);
+            setCurrentEnterprise(nextState.currentEnterprise || null);
+            setRequiresEnterpriseSelection(Boolean(nextState.requiresEnterpriseSelection));
+          }
+        })
+        .catch(() => {});
     }
+
     // 恢复同步状态
     const savedSyncTaskId = localStorage.getItem('syncTaskId');
     if (savedSyncTaskId) {
@@ -305,6 +326,37 @@ function HeaderOnlyLayout({ children }) {
     fetchShopsForHeader();
     fetchPlatformsForHeader();
   }, []);
+
+  useEffect(() => {
+    if (requiresEnterpriseSelection) {
+      navigate('/enterprise-onboarding', { replace: true });
+    }
+  }, [navigate, requiresEnterpriseSelection]);
+
+  const handleEnterpriseChangeForHeader = async (enterpriseId) => {
+    if (!enterpriseId || Number(enterpriseId) === Number(currentEnterprise?.id)) {
+      return;
+    }
+
+    try {
+      setSwitchingEnterprise(true);
+      const response = await authAPI.selectEnterprise({ enterpriseId });
+      if (response.data.success) {
+        saveAuthSession(response.data.data);
+        const authState = getStoredAuthState();
+        setEnterprises(authState.enterprises || []);
+        setCurrentEnterprise(authState.currentEnterprise || null);
+        setRequiresEnterpriseSelection(Boolean(authState.requiresEnterpriseSelection));
+        message.success(`已切换到企业：${response.data.data.currentEnterprise?.companyName || '已切换'}`);
+      } else {
+        message.error(response.data.message || '切换企业失败');
+      }
+    } catch (error) {
+      message.error(error.response?.data?.message || '切换企业失败');
+    } finally {
+      setSwitchingEnterprise(false);
+    }
+  };
 
   const fetchShopsForHeader = async () => {
     try {
@@ -497,8 +549,7 @@ function HeaderOnlyLayout({ children }) {
   };
 
   const handleLogoutForHeader = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    clearAuthSession();
     navigate('/login');
   };
 
@@ -508,6 +559,12 @@ function HeaderOnlyLayout({ children }) {
         <div style={{ padding: '8px 0' }}>
           <div style={{ fontWeight: 'bold' }}>{user?.realName || user?.username || '用户'}</div>
           <div style={{ fontSize: '12px', color: '#999' }}>{user?.phone || ''}</div>
+        </div>
+      </Menu.Item>
+      <Menu.Item key="enterprise-info" disabled>
+        <div style={{ padding: '4px 0' }}>
+          <div style={{ fontSize: '12px', color: '#999' }}>当前企业</div>
+          <div>{currentEnterprise?.companyName || '未加入企业'}</div>
         </div>
       </Menu.Item>
       <Menu.Divider />
@@ -540,6 +597,36 @@ function HeaderOnlyLayout({ children }) {
           />
         </Link>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          {enterprises.length > 0 ? (
+            <Select
+              value={currentEnterprise?.id || undefined}
+              placeholder="选择企业"
+              onChange={handleEnterpriseChangeForHeader}
+              loading={switchingEnterprise}
+              style={{ width: 220 }}
+              size="middle"
+              optionFilterProp="label"
+              showSearch
+            >
+              {enterprises.map((enterprise) => (
+                <Option
+                  key={enterprise.id}
+                  value={enterprise.id}
+                  label={`${enterprise.companyName} (${enterprise.enterpriseCode})`}
+                >
+                  {enterprise.companyName} ({enterprise.enterpriseCode})
+                </Option>
+              ))}
+            </Select>
+          ) : requiresEnterpriseSelection ? (
+            <Button
+              size="middle"
+              style={{ background: 'rgba(255,255,255,0.16)', borderColor: 'rgba(255,255,255,0.35)', color: '#ffffff' }}
+              onClick={() => navigate('/enterprise-onboarding')}
+            >
+              完成初始化
+            </Button>
+          ) : null}
           <Button 
             type="primary" 
             icon={<SyncOutlined spin={syncing} />}
@@ -745,6 +832,10 @@ function MainLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [user, setUser] = useState(null);
+  const [enterprises, setEnterprises] = useState([]);
+  const [currentEnterprise, setCurrentEnterprise] = useState(null);
+  const [requiresEnterpriseSelection, setRequiresEnterpriseSelection] = useState(false);
+  const [switchingEnterprise, setSwitchingEnterprise] = useState(false);
   const [syncModalVisible, setSyncModalVisible] = useState(false);
   const [syncForm] = Form.useForm();
   const [syncing, setSyncing] = useState(false);
@@ -761,6 +852,9 @@ function MainLayout() {
   const [shopProductSyncSettings, setShopProductSyncSettings] = useState({});
   const [activeTopMenu, setActiveTopMenu] = useState('dashboard'); // 当前选中的一级菜单
   const [expandedMenuGroups, setExpandedMenuGroups] = useState({ onlineProducts: true }); // 菜单分组展开状态
+  const canReviewJoinRequests = Boolean(
+    currentEnterprise?.isOwner || currentEnterprise?.is_owner || ['owner', 'admin'].includes((currentEnterprise?.memberType || currentEnterprise?.member_type || '').toLowerCase())
+  );
 
   // 根据路径自动设置一级菜单
   useEffect(() => {
@@ -777,7 +871,7 @@ function MainLayout() {
       setActiveTopMenu('finance-management');
     } else if (['/compliance-label-print', '/package-video-list', '/label-data-tables'].includes(path)) {
       setActiveTopMenu('compliance-management');
-    } else if (['/platform-management', '/logistics-management', '/suppliers', '/user-management', '/role-management', '/enterprise-settings', '/operation-logs', '/login-logs'].includes(path)) {
+    } else if (['/platform-management', '/logistics-management', '/suppliers', '/user-management', '/role-management', '/enterprise-settings', '/join-request-review', '/operation-logs', '/login-logs'].includes(path)) {
       setActiveTopMenu('system-management');
     } else if (['/personal-center'].includes(path)) {
       setActiveTopMenu('dashboard');
@@ -785,15 +879,27 @@ function MainLayout() {
   }, [location.pathname]);
 
   useEffect(() => {
-    // 从localStorage获取用户信息
-    const userStr = localStorage.getItem('user');
-    if (userStr) {
-      try {
-        setUser(JSON.parse(userStr));
-      } catch (e) {
-        console.error('解析用户信息失败:', e);
-      }
+    const authState = getStoredAuthState();
+    setUser(authState.user);
+    setEnterprises(authState.enterprises || []);
+    setCurrentEnterprise(authState.currentEnterprise || null);
+    setRequiresEnterpriseSelection(Boolean(authState.requiresEnterpriseSelection));
+
+    if (authState.token) {
+      authAPI.getCurrentUser()
+        .then((response) => {
+          if (response.data.success) {
+            saveAuthSession(response.data.data);
+            const nextState = getStoredAuthState();
+            setUser(nextState.user);
+            setEnterprises(nextState.enterprises || []);
+            setCurrentEnterprise(nextState.currentEnterprise || null);
+            setRequiresEnterpriseSelection(Boolean(nextState.requiresEnterpriseSelection));
+          }
+        })
+        .catch(() => {});
     }
+
     // 恢复同步状态
     const savedSyncTaskId = localStorage.getItem('syncTaskId');
     if (savedSyncTaskId) {
@@ -806,6 +912,37 @@ function MainLayout() {
     fetchShops();
     fetchPlatforms();
   }, []);
+
+  useEffect(() => {
+    if (requiresEnterpriseSelection) {
+      navigate('/enterprise-onboarding', { replace: true });
+    }
+  }, [navigate, requiresEnterpriseSelection]);
+
+  const handleEnterpriseChange = async (enterpriseId) => {
+    if (!enterpriseId || Number(enterpriseId) === Number(currentEnterprise?.id)) {
+      return;
+    }
+
+    try {
+      setSwitchingEnterprise(true);
+      const response = await authAPI.selectEnterprise({ enterpriseId });
+      if (response.data.success) {
+        saveAuthSession(response.data.data);
+        const authState = getStoredAuthState();
+        setEnterprises(authState.enterprises || []);
+        setCurrentEnterprise(authState.currentEnterprise || null);
+        setRequiresEnterpriseSelection(Boolean(authState.requiresEnterpriseSelection));
+        message.success(`已切换到企业：${response.data.data.currentEnterprise?.companyName || '已切换'}`);
+      } else {
+        message.error(response.data.message || '切换企业失败');
+      }
+    } catch (error) {
+      message.error(error.response?.data?.message || '切换企业失败');
+    } finally {
+      setSwitchingEnterprise(false);
+    }
+  };
 
   const fetchShops = async () => {
     try {
@@ -995,10 +1132,7 @@ function MainLayout() {
   };
 
   const handleLogout = () => {
-    // 清除登录信息
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    // 跳转到登录页
+    clearAuthSession();
     navigate('/login');
   };
 
@@ -1008,6 +1142,12 @@ function MainLayout() {
         <div style={{ padding: '8px 0' }}>
           <div style={{ fontWeight: 'bold' }}>{user?.realName || user?.username || '用户'}</div>
           <div style={{ fontSize: '12px', color: '#999' }}>{user?.phone || ''}</div>
+        </div>
+      </Menu.Item>
+      <Menu.Item key="enterprise-info" disabled>
+        <div style={{ padding: '4px 0' }}>
+          <div style={{ fontSize: '12px', color: '#999' }}>当前企业</div>
+          <div>{currentEnterprise?.companyName || '未加入企业'}</div>
         </div>
       </Menu.Item>
       <Menu.Divider />
@@ -1057,6 +1197,7 @@ function MainLayout() {
     if (path === '/user-management') return ['user-management'];
     if (path === '/role-management') return ['role-management'];
     if (path === '/enterprise-settings') return ['enterprise-settings'];
+    if (path === '/join-request-review') return ['join-request-review'];
     if (path === '/operation-logs') return ['operation-logs'];
     if (path === '/login-logs') return ['login-logs'];
     if (path === '/personal-center') return ['personal-center'];
@@ -1076,6 +1217,7 @@ function MainLayout() {
     }
     if (path === '/platform-management' || path === '/logistics-management' || path === '/suppliers' || 
         path === '/user-management' || path === '/role-management' || path === '/enterprise-settings' ||
+        path === '/join-request-review' ||
         path === '/operation-logs' || path === '/login-logs') {
       return ['system-management'];
     }
@@ -1159,6 +1301,36 @@ function MainLayout() {
           <Menu.Item key="system-management"><Link to="/platform-management" style={{ color: 'inherit' }}>设置</Link></Menu.Item>
         </Menu>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          {enterprises.length > 0 ? (
+            <Select
+              value={currentEnterprise?.id || undefined}
+              placeholder="选择企业"
+              onChange={handleEnterpriseChange}
+              loading={switchingEnterprise}
+              style={{ width: 220 }}
+              size="middle"
+              optionFilterProp="label"
+              showSearch
+            >
+              {enterprises.map((enterprise) => (
+                <Option
+                  key={enterprise.id}
+                  value={enterprise.id}
+                  label={`${enterprise.companyName} (${enterprise.enterpriseCode})`}
+                >
+                  {enterprise.companyName} ({enterprise.enterpriseCode})
+                </Option>
+              ))}
+            </Select>
+          ) : requiresEnterpriseSelection ? (
+            <Button
+              size="middle"
+              style={{ background: 'rgba(255,255,255,0.16)', borderColor: 'rgba(255,255,255,0.35)', color: '#ffffff' }}
+              onClick={() => navigate('/enterprise-onboarding')}
+            >
+              完成初始化
+            </Button>
+          ) : null}
           <Button 
             type="primary" 
             icon={<SyncOutlined spin={syncing} />}
@@ -1289,6 +1461,7 @@ function MainLayout() {
                   <Menu.Item key="user-management"><Link to="/user-management">用户管理</Link></Menu.Item>
                   <Menu.Item key="role-management"><Link to="/role-management">角色权限</Link></Menu.Item>
                   <Menu.Item key="enterprise-settings"><Link to="/enterprise-settings">企业设置</Link></Menu.Item>
+                  {canReviewJoinRequests && <Menu.Item key="join-request-review"><Link to="/join-request-review">加入申请审核</Link></Menu.Item>}
                   <Menu.Divider />
                   <Menu.Item key="operation-logs"><Link to="/operation-logs">操作日志</Link></Menu.Item>
                   <Menu.Item key="login-logs"><Link to="/login-logs">登录日志</Link></Menu.Item>
@@ -1421,6 +1594,9 @@ function MainLayout() {
               } else if (location.pathname === '/enterprise-settings') {
                 parentMenu = '系统管理';
                 currentMenu = '企业设置';
+              } else if (location.pathname === '/join-request-review') {
+                parentMenu = '系统管理';
+                currentMenu = '加入申请审核';
               } else if (location.pathname === '/operation-logs') {
                 parentMenu = '系统管理';
                 currentMenu = '操作日志';
@@ -1486,6 +1662,7 @@ function MainLayout() {
               <Route path="/user-management" element={<UserManagement />} />
               <Route path="/role-management" element={<RoleManagement />} />
               <Route path="/enterprise-settings" element={<EnterpriseSettings />} />
+              <Route path="/join-request-review" element={<JoinRequestReview />} />
               <Route path="/operation-logs" element={<OperationLogs />} />
               <Route path="/login-logs" element={<LoginLogs />} />
               <Route path="/personal-center" element={<PersonalCenter />} />
@@ -1685,6 +1862,12 @@ function App() {
         <Route path="/label-editor/:templateId" element={
           <PrivateRoute>
             <LabelEditor />
+          </PrivateRoute>
+        } />
+
+        <Route path="/enterprise-onboarding" element={
+          <PrivateRoute>
+            <EnterpriseOnboarding />
           </PrivateRoute>
         } />
         

@@ -1,147 +1,299 @@
 version: '3.8'
 
+x-backend-env: &backend-env
+  TZ: ${TZ:-Asia/Shanghai}
+  MYSQL_HOST: mysql
+  MYSQL_PORT: 3306
+  MYSQL_USER: root
+  MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123}
+  MYSQL_DATABASE: ${MYSQL_DATABASE:-eer}
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  REDIS_PASSWORD: ''
+  RABBITMQ_HOST: rabbitmq
+  RABBITMQ_PORT: 5672
+  RABBITMQ_USER: ${RABBITMQ_USER:-eer_admin}
+  RABBITMQ_PASS: ${RABBITMQ_PASS:-eer_mq_2024}
+  RABBITMQ_VHOST: ${RABBITMQ_VHOST:-eer}
+  JWT_SECRET: ${JWT_SECRET:-erp-jwt-secret-key}
+
 services:
-  # API网关
+  web:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8088:80"
+    depends_on:
+      - gateway
+    networks:
+      - erp-network
+
+  admin-web:
+    build:
+      context: .
+      dockerfile: docker/admin-web.Dockerfile
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${PLATFORM_ADMIN_WEB_PORT:-8090}:80"
+    depends_on:
+      - admin-api
+    networks:
+      - erp-network
+
+  admin-api:
+    build:
+      context: .
+      dockerfile: docker/admin-api.Dockerfile
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+      NODE_ENV: development
+      PLATFORM_ADMIN_PORT: ${PLATFORM_ADMIN_PORT:-5090}
+      PLATFORM_ADMIN_BOOTSTRAP_USERNAME: ${PLATFORM_ADMIN_BOOTSTRAP_USERNAME:-platform_admin}
+      PLATFORM_ADMIN_BOOTSTRAP_PASSWORD: ${PLATFORM_ADMIN_BOOTSTRAP_PASSWORD:-admin123}
+      PLATFORM_ADMIN_JWT_SECRET: ${PLATFORM_ADMIN_JWT_SECRET:-platform-admin-secret-key}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - erp-network
+
   gateway:
-    build: ./services/gateway
-    ports:
-      - "5000:5000"
+    build:
+      context: .
+      dockerfile: docker/gateway.Dockerfile
+    restart: unless-stopped
     environment:
-      - NODE_ENV=development
-      - SERVICE_NAME=gateway
-      - REDIS_HOST=redis
-      - MYSQL_HOST=mysql
-      - SYNC_ENGINE_HOST=sync-engine
-      - OMS_HOST=oms
-      - WMS_HOST=wms
-      - PMS_HOST=pms
-      - OSS_HOST=oss
-      - MISC_HOST=misc
+      <<: *backend-env
+      NODE_ENV: development
+      SERVICE_NAME: gateway
+      PORT: 5000
+      HTTP_PORT: ${HTTP_PORT:-5000}
+      HTTPS_ENABLED: ${HTTPS_ENABLED:-false}
+      SYNC_ENGINE_HOST: sync-engine
+      OMS_HOST: oms
+      WMS_HOST: wms
+      PMS_HOST: pms
+      OSS_HOST: oss
+      MISC_HOST: misc
     depends_on:
-      - redis
-      - mysql
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     networks:
       - erp-network
 
-  # 同步引擎
   sync-engine:
-    build: ./services/sync-engine
-    ports:
-      - "5001:5001"
+    build:
+      context: .
+      dockerfile: docker/sync-engine.Dockerfile
+    restart: unless-stopped
     environment:
-      - NODE_ENV=development
-      - SERVICE_NAME=sync-engine
-      - PORT=5001
-      - REDIS_HOST=redis
-      - MYSQL_HOST=mysql
+      <<: *backend-env
+      NODE_ENV: development
+      SERVICE_NAME: sync-engine
+      PORT: 5001
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:8088}
     depends_on:
-      - redis
-      - mysql
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     networks:
       - erp-network
 
-  # 订单服务
   oms:
-    build: ./services/oms
-    ports:
-      - "5002:5002"
+    build:
+      context: .
+      dockerfile: docker/oms.Dockerfile
+    restart: unless-stopped
     environment:
-      - NODE_ENV=development
-      - SERVICE_NAME=oms
-      - PORT=5002
-      - REDIS_HOST=redis
-      - MYSQL_HOST=mysql
+      <<: *backend-env
+      NODE_ENV: development
+      SERVICE_NAME: oms
+      PORT: 5002
+      SYNC_ENGINE_HOST: sync-engine
+      SYNC_ENGINE_PORT: 5001
+      SYNC_ENGINE_URL: http://sync-engine:5001
     depends_on:
-      - redis
-      - mysql
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      sync-engine:
+        condition: service_started
     networks:
       - erp-network
 
-  # 库存服务
   wms:
-    build: ./services/wms
-    ports:
-      - "5003:5003"
+    build:
+      context: .
+      dockerfile: docker/wms.Dockerfile
+    restart: unless-stopped
     environment:
-      - NODE_ENV=development
-      - SERVICE_NAME=wms
-      - PORT=5003
-      - REDIS_HOST=redis
-      - MYSQL_HOST=mysql
+      <<: *backend-env
+      NODE_ENV: development
+      SERVICE_NAME: wms
+      PORT: 5003
     depends_on:
-      - redis
-      - mysql
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - erp-network
 
-  # 商品服务
   pms:
-    build: ./services/pms
-    ports:
-      - "5004:5004"
+    build:
+      context: .
+      dockerfile: docker/pms.Dockerfile
+    restart: unless-stopped
     environment:
-      - NODE_ENV=development
-      - SERVICE_NAME=pms
-      - PORT=5004
-      - REDIS_HOST=redis
-      - MYSQL_HOST=mysql
+      <<: *backend-env
+      NODE_ENV: development
+      SERVICE_NAME: pms
+      PORT: 5004
     depends_on:
-      - redis
-      - mysql
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - erp-network
 
-  # 文件存储服务
-  oss:
-    build: ./services/oss
-    ports:
-      - "3001:3001"
-    environment:
-      - NODE_ENV=development
-      - SERVICE_NAME=oss
-      - PORT=3001
-    volumes:
-      - oss-storage:/app/storage
-    networks:
-      - erp-network
-
-  # 综合服务
   misc:
-    build: ./services/misc
-    ports:
-      - "5005:5005"
+    build:
+      context: .
+      dockerfile: docker/misc.Dockerfile
+    restart: unless-stopped
     environment:
-      - NODE_ENV=development
-      - SERVICE_NAME=misc
-      - PORT=5005
-      - REDIS_HOST=redis
-      - MYSQL_HOST=mysql
+      <<: *backend-env
+      NODE_ENV: development
+      DB_AUTO_SYNC: "false"
+      SERVICE_NAME: misc
+      PORT: 5005
     depends_on:
-      - redis
-      - mysql
-    networks:
-      - erp-network
-
-  # Redis
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     volumes:
-      - redis-data:/data
+      - misc-uploads:/app/services/misc/uploads
     networks:
       - erp-network
 
-  # MySQL
+  oss:
+    build:
+      context: .
+      dockerfile: docker/oss.Dockerfile
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      NODE_ENV: development
+      SERVICE_NAME: oss
+      PORT: 3001
+      OSS_SECRET_KEY: ${OSS_SECRET_KEY:-local-oss-secret-key-2024}
+      FILE_RETENTION_HOURS: ${FILE_RETENTION_HOURS:-24}
+      DEFAULT_EXPIRES_IN: ${DEFAULT_EXPIRES_IN:-7200}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+    volumes:
+      - oss-storage:/app/services/oss/storage
+    networks:
+      - erp-network
+
+  webhook:
+    build:
+      context: .
+      dockerfile: docker/webhook.Dockerfile
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+      NODE_ENV: development
+      WEBHOOK_HTTP_PORT: 8080
+      WEBHOOK_HTTPS_PORT: 8678
+      TEMU_APP_KEY: ${TEMU_APP_KEY:-}
+      TEMU_APP_SECRET: ${TEMU_APP_SECRET:-}
+      TIKTOK_APP_KEY: ${TIKTOK_APP_KEY:-}
+      TIKTOK_APP_SECRET: ${TIKTOK_APP_SECRET:-}
+      SHEIN_FULL_APP_ID: ${SHEIN_FULL_APP_ID:-}
+      SHEIN_FULL_APP_SECRET_KEY: ${SHEIN_FULL_APP_SECRET_KEY:-}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    ports:
+      - "${WEBHOOK_HTTP_PORT:-8080}:8080"
+      - "${WEBHOOK_HTTPS_PORT:-8678}:8678"
+    networks:
+      - erp-network
+
   mysql:
     image: mysql:8.0
-    ports:
-      - "3306:3306"
+    container_name: shuotu-erp-mysql
+    command: --default-authentication-plugin=mysql_native_password
+    restart: unless-stopped
     environment:
-      - MYSQL_ROOT_PASSWORD=root123
-      - MYSQL_DATABASE=erp
+      TZ: ${TZ:-Asia/Shanghai}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-eer}
+    ports:
+      - "${MYSQL_PORT:-3316}:3306"
     volumes:
       - mysql-data:/var/lib/mysql
+      - ./erp.sql:/docker-entrypoint-initdb.d/01-erp.sql:ro
+      - ./services/database/saas_core.sql:/docker-entrypoint-initdb.d/02-saas-core.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p${MYSQL_ROOT_PASSWORD:-root123} --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+    networks:
+      - erp-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: shuotu-erp-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6380}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - erp-network
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: shuotu-erp-rabbitmq
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-eer_admin}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-eer_mq_2024}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-eer}
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     networks:
       - erp-network
 
@@ -150,6 +302,8 @@ networks:
     driver: bridge
 
 volumes:
-  redis-data:
   mysql-data:
+  redis-data:
+  rabbitmq-data:
   oss-storage:
+  misc-uploads:

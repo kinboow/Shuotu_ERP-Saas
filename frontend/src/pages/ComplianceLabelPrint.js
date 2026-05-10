@@ -127,9 +127,7 @@ const ComplianceLabelPrint = () => {
     if (process.env.REACT_APP_API_URL) {
       return process.env.REACT_APP_API_URL;
     }
-    const serviceHost = process.env.REACT_APP_SERVICE_HOST || window.location.hostname;
-    const protocol = window.location.protocol;
-    return `${protocol}//${serviceHost}:5000/api`;
+    return '/api';
   };
 
   // 加载指定客户端的打印机列表

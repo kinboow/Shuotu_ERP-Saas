@@ -27,16 +27,19 @@ const CourierCompany = require('./courier-company')(sequelize);
 const CourierReport = require('./courier-report')(sequelize);
 const CourierReportItem = require('./courier-report-item')(sequelize);
 
+const shouldAutoSync = process.env.DB_AUTO_SYNC === 'true' || process.env.NODE_ENV === 'development';
+
 const syncDatabase = async () => {
   try {
     await sequelize.authenticate();
     console.log('[MISC] 数据库连接成功');
-    if (process.env.NODE_ENV === 'development') {
+    if (shouldAutoSync) {
       await sequelize.sync({ alter: true });
       console.log('[MISC] 数据表同步完成');
     }
   } catch (error) {
     console.error('[MISC] 数据库连接失败:', error.message);
+    throw error;
   }
 };
 

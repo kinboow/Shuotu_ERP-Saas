@@ -16,6 +16,7 @@ const { connectDatabase } = require('./config/database');
 const { syncDatabase } = require('./models');
 const PlatformConfigService = require('./services/platform-config.service');
 const { initMQ, closeMQ } = require('./services/mq');
+const { ensureTenantColumns, runWithRequestContext } = require('./services/tenant-context.service');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -23,6 +24,7 @@ const PORT = process.env.PORT || 5001;
 // 中间件
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
+app.use((req, res, next) => runWithRequestContext(req, next));
 
 // 健康检查
 app.get('/health', (req, res) => {
@@ -70,6 +72,7 @@ app.use((err, req, res, next) => {
 const start = async () => {
   await connectDatabase();
   await syncDatabase();
+  await ensureTenantColumns();
   
   // 初始化默认平台配置
   await PlatformConfigService.initDefaultPlatforms();

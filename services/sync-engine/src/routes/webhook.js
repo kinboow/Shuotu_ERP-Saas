@@ -24,7 +24,7 @@ const syncService = require('../services/shein-full-sync.service');
  */
 async function getSheinPlatformCredentials() {
   const results = await sequelize.query(
-    `SELECT app_key, app_secret FROM platform_configs WHERE platform_name = 'shein_full'`,
+    `SELECT app_key, app_secret FROM platform_configs WHERE platform_name = 'shein_full' AND enterprise_id = 0 AND status = 1`,
     { type: QueryTypes.SELECT }
   );
   const config = results[0];

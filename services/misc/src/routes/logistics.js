@@ -6,6 +6,7 @@ const express = require('express');
 const router = express.Router();
 const { LogisticsProvider } = require('../models');
 const { Op } = require('sequelize');
+const { ensureBusinessTenantColumns, getRequiredEnterpriseIdFromRequest } = require('../services/enterprise-context');
 
 const generateId = () => {
   const date = new Date();
@@ -17,14 +18,16 @@ const generateId = () => {
 // 查询列表 - 兼容 /api/logistics 和 /api/logistics/providers
 router.get('/', async (req, res) => {
   try {
+    await ensureBusinessTenantColumns();
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { status, type, keyword, page = 1, pageSize = 20 } = req.query;
-    const where = {};
-    if (status) where.status = status;
-    if (type) where.type = type;
+    const where = { enterpriseId };
+    if (status) where.is_active = String(status).toUpperCase() === 'ACTIVE';
+    if (type) where.provider_type = type;
     if (keyword) {
       where[Op.or] = [
-        { name: { [Op.like]: `%${keyword}%` } },
-        { code: { [Op.like]: `%${keyword}%` } }
+        { provider_name: { [Op.like]: `%${keyword}%` } },
+        { provider_code: { [Op.like]: `%${keyword}%` } }
       ];
     }
 
@@ -42,9 +45,11 @@ router.get('/', async (req, res) => {
 });
 
 // 获取详情
-router.get('/:id', async (req, res) => {
+router.get('/:id(LOG[0-9A-Z]+)', async (req, res) => {
   try {
-    const provider = await LogisticsProvider.findOne({ where: { providerId: req.params.id } });
+    await ensureBusinessTenantColumns();
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
+    const provider = await LogisticsProvider.findOne({ where: { providerId: req.params.id, enterpriseId } });
     if (!provider) return res.status(404).json({ success: false, message: '物流商不存在' });
     res.json({ success: true, data: provider });
   } catch (error) {
@@ -55,7 +60,12 @@ router.get('/:id', async (req, res) => {
 // 创建
 router.post('/', async (req, res) => {
   try {
-    const provider = await LogisticsProvider.create({ ...req.body, providerId: generateId() });
+    await ensureBusinessTenantColumns();
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
+    const payload = { ...req.body };
+    delete payload.enterpriseId;
+    delete payload.enterprise_id;
+    const provider = await LogisticsProvider.create({ ...payload, providerId: generateId(), enterpriseId });
     res.json({ success: true, data: provider });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -63,11 +73,16 @@ router.post('/', async (req, res) => {
 });
 
 // 更新
-router.put('/:id', async (req, res) => {
+router.put('/:id(LOG[0-9A-Z]+)', async (req, res) => {
   try {
-    const provider = await LogisticsProvider.findOne({ where: { providerId: req.params.id } });
+    await ensureBusinessTenantColumns();
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
+    const provider = await LogisticsProvider.findOne({ where: { providerId: req.params.id, enterpriseId } });
     if (!provider) return res.status(404).json({ success: false, message: '物流商不存在' });
-    await provider.update(req.body);
+    const payload = { ...req.body };
+    delete payload.enterpriseId;
+    delete payload.enterprise_id;
+    await provider.update(payload);
     res.json({ success: true, data: provider });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -75,11 +90,13 @@ router.put('/:id', async (req, res) => {
 });
 
 // 删除
-router.delete('/:id', async (req, res) => {
+router.delete('/:id(LOG[0-9A-Z]+)', async (req, res) => {
   try {
-    const provider = await LogisticsProvider.findOne({ where: { providerId: req.params.id } });
+    await ensureBusinessTenantColumns();
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
+    const provider = await LogisticsProvider.findOne({ where: { providerId: req.params.id, enterpriseId } });
     if (!provider) return res.status(404).json({ success: false, message: '物流商不存在' });
-    await provider.update({ status: 'DELETED' });
+    await provider.update({ is_active: false });
     res.json({ success: true, message: '删除成功' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -89,14 +106,16 @@ router.delete('/:id', async (req, res) => {
 // 兼容前端 /api/logistics/providers 路径
 router.get('/providers', async (req, res) => {
   try {
+    await ensureBusinessTenantColumns();
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { search, provider_type, is_active, page = 1, pageSize = 20 } = req.query;
-    const where = {};
-    if (provider_type && provider_type !== 'all') where.type = provider_type;
-    if (is_active === 'true') where.status = 'ACTIVE';
+    const where = { enterpriseId };
+    if (provider_type && provider_type !== 'all') where.provider_type = provider_type;
+    if (is_active === 'true') where.is_active = true;
     if (search) {
       where[Op.or] = [
-        { name: { [Op.like]: `%${search}%` } },
-        { code: { [Op.like]: `%${search}%` } }
+        { provider_name: { [Op.like]: `%${search}%` } },
+        { provider_code: { [Op.like]: `%${search}%` } }
       ];
     }
 
@@ -115,7 +134,12 @@ router.get('/providers', async (req, res) => {
 
 router.post('/providers', async (req, res) => {
   try {
-    const provider = await LogisticsProvider.create({ ...req.body, providerId: generateId() });
+    await ensureBusinessTenantColumns();
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
+    const payload = { ...req.body };
+    delete payload.enterpriseId;
+    delete payload.enterprise_id;
+    const provider = await LogisticsProvider.create({ ...payload, providerId: generateId(), enterpriseId });
     res.json({ success: true, data: provider });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -124,9 +148,14 @@ router.post('/providers', async (req, res) => {
 
 router.put('/providers/:id', async (req, res) => {
   try {
-    const provider = await LogisticsProvider.findByPk(req.params.id);
+    await ensureBusinessTenantColumns();
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
+    const provider = await LogisticsProvider.findOne({ where: { id: req.params.id, enterpriseId } });
     if (!provider) return res.status(404).json({ success: false, message: '物流商不存在' });
-    await provider.update(req.body);
+    const payload = { ...req.body };
+    delete payload.enterpriseId;
+    delete payload.enterprise_id;
+    await provider.update(payload);
     res.json({ success: true, data: provider });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -135,9 +164,11 @@ router.put('/providers/:id', async (req, res) => {
 
 router.delete('/providers/:id', async (req, res) => {
   try {
-    const provider = await LogisticsProvider.findByPk(req.params.id);
+    await ensureBusinessTenantColumns();
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
+    const provider = await LogisticsProvider.findOne({ where: { id: req.params.id, enterpriseId } });
     if (!provider) return res.status(404).json({ success: false, message: '物流商不存在' });
-    await provider.destroy();
+    await provider.update({ is_active: false });
     res.json({ success: true, message: '删除成功' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -150,9 +181,11 @@ const bcrypt = require('bcryptjs');
 // 设置登录账号
 router.put('/providers/:id/login-account', async (req, res) => {
   try {
+    await ensureBusinessTenantColumns();
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { login_username, login_password, login_enabled, pda_access } = req.body;
     
-    const provider = await LogisticsProvider.findByPk(req.params.id);
+    const provider = await LogisticsProvider.findOne({ where: { id: req.params.id, enterpriseId } });
     if (!provider) {
       return res.status(404).json({ success: false, message: '物流商不存在' });
     }
@@ -160,7 +193,7 @@ router.put('/providers/:id/login-account', async (req, res) => {
     // 检查用户名是否已被使用
     if (login_username && login_username !== provider.login_username) {
       const existing = await LogisticsProvider.findOne({
-        where: { login_username }
+        where: { login_username, enterpriseId }
       });
       if (existing) {
         return res.status(400).json({ success: false, message: '该登录账号已被使用' });
@@ -200,13 +233,15 @@ router.put('/providers/:id/login-account', async (req, res) => {
 // 修改密码
 router.put('/providers/:id/change-password', async (req, res) => {
   try {
+    await ensureBusinessTenantColumns();
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { new_password } = req.body;
     
     if (!new_password || new_password.length < 6) {
       return res.status(400).json({ success: false, message: '密码至少6个字符' });
     }
 
-    const provider = await LogisticsProvider.findByPk(req.params.id);
+    const provider = await LogisticsProvider.findOne({ where: { id: req.params.id, enterpriseId } });
     if (!provider) {
       return res.status(404).json({ success: false, message: '物流商不存在' });
     }
@@ -224,9 +259,11 @@ router.put('/providers/:id/change-password', async (req, res) => {
 // 开启/关闭PDA访问
 router.put('/providers/:id/pda-access', async (req, res) => {
   try {
+    await ensureBusinessTenantColumns();
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { login_enabled, pda_access } = req.body;
     
-    const provider = await LogisticsProvider.findByPk(req.params.id);
+    const provider = await LogisticsProvider.findOne({ where: { id: req.params.id, enterpriseId } });
     if (!provider) {
       return res.status(404).json({ success: false, message: '物流商不存在' });
     }

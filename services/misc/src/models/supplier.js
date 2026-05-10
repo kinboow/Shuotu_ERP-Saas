@@ -11,6 +11,12 @@ module.exports = (sequelize) => {
       primaryKey: true,
       autoIncrement: true
     },
+    enterpriseId: {
+      type: DataTypes.BIGINT,
+      allowNull: false,
+      defaultValue: 0,
+      field: 'enterprise_id'
+    },
     supplier_code: {
       type: DataTypes.STRING(50),
       unique: true
@@ -70,7 +76,11 @@ module.exports = (sequelize) => {
     tableName: 'suppliers',
     timestamps: true,
     createdAt: 'created_at',
-    updatedAt: 'updated_at'
+    updatedAt: 'updated_at',
+    indexes: [
+      { fields: ['enterprise_id'] },
+      { fields: ['status'] }
+    ]
   });
 
   return Supplier;

@@ -8,6 +8,7 @@ const express = require('express');
 const cors = require('cors');
 
 const { syncDatabase } = require('./models');
+const { ensureTenantColumns, runWithRequestContext } = require('./services/tenant-context.service');
 const inventoryRouter = require('./routes/inventory');
 
 const app = express();
@@ -16,6 +17,7 @@ const PORT = process.env.PORT || 5003;
 // 中间件
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
+app.use((req, res, next) => runWithRequestContext(req, next));
 
 // 健康检查
 app.get('/health', (req, res) => {
@@ -34,6 +36,7 @@ app.use((err, req, res, next) => {
 // 启动服务
 const start = async () => {
   await syncDatabase();
+  await ensureTenantColumns();
   
   app.listen(PORT, () => {
     console.log(`========================================`);

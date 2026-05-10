@@ -11,6 +11,7 @@ const cors = require('cors');
 const { syncDatabase } = require('./models');
 const { initRedis } = require('./services/redis');
 const { initMQ, closeMQ } = require('./services/mq');
+const { ensureTenantTables, ensureBusinessTenantColumns, runWithRequestContext } = require('./services/enterprise-context');
 const authRouter = require('./routes/auth');
 const pdaAuthRouter = require('./routes/pda-auth');
 const usersRouter = require('./routes/users');
@@ -32,6 +33,7 @@ const PORT = process.env.PORT || 5005;
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
+app.use((req, res, next) => runWithRequestContext(req, next));
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'misc', timestamp: new Date().toISOString() });
@@ -68,6 +70,8 @@ app.use((err, req, res, next) => {
 
 const start = async () => {
   await syncDatabase();
+  await ensureTenantTables();
+  await ensureBusinessTenantColumns();
   
   // 初始化Redis
   initRedis();

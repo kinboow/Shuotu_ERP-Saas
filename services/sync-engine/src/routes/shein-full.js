@@ -9,11 +9,29 @@ const SheinFullAuthService = require('../services/shein-full-auth.service');
 const SheinFullShopService = require('../services/shein-full-shop.service');
 const { sequelize } = require('../models');
 const { QueryTypes } = require('sequelize');
+const { getRequiredEnterpriseIdFromRequest } = require('../services/tenant-context.service');
 
 // 获取适配器实例的辅助函数 (使用shein_full_shops表)
-async function getAdapter(shopId) {
-  const shopConfig = await SheinFullShopService.getShopConfig(shopId);
+async function getAdapter(shopId, enterpriseId = undefined) {
+  const shopConfig = await SheinFullShopService.getShopConfig(shopId, enterpriseId);
   return new SheinFullAdapter(shopConfig);
+}
+
+async function requireEnterpriseShop(req, res, shopId, missingShopMessage = 'shopId不能为空') {
+  const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
+
+  if (!shopId) {
+    res.status(400).json({ success: false, message: missingShopMessage });
+    return null;
+  }
+
+  const shop = await SheinFullShopService.getShopById(shopId, enterpriseId);
+  if (!shop) {
+    res.status(404).json({ success: false, message: '店铺不存在' });
+    return null;
+  }
+
+  return { enterpriseId, shop };
 }
 
 function parseJsonSafe(value, fallback) {
@@ -486,8 +504,9 @@ function matchesLocalProductSearch(row, keyword) {
  */
 router.get('/shops', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const includeDisabled = req.query.includeDisabled === 'true';
-    const shops = await SheinFullShopService.getAllShops(includeDisabled);
+    const shops = await SheinFullShopService.getAllShops(includeDisabled, enterpriseId);
     res.json({ success: true, data: shops });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -502,9 +521,8 @@ router.post('/barcode-list', async (req, res) => {
   try {
     const { shopId, spuName, languageList } = req.body;
 
-    if (!shopId) {
-      return res.status(400).json({ success: false, message: 'shopId不能为空' });
-    }
+    const shopContext = await requireEnterpriseShop(req, res, shopId);
+    if (!shopContext) return;
     if (!spuName) {
       return res.status(400).json({ success: false, message: 'spuName不能为空' });
     }
@@ -513,7 +531,8 @@ router.post('/barcode-list', async (req, res) => {
       ? languageList.slice(0, 5)
       : ['zh-cn', 'en', 'ko', 'ja'];
 
-    const adapter = await getAdapter(shopId);
+    const { enterpriseId } = shopContext;
+    const adapter = await getAdapter(shopId, enterpriseId);
     let apiSkuRows = [];
     let apiError = null;
     try {
@@ -532,9 +551,14 @@ router.post('/barcode-list', async (req, res) => {
     let dbError = null;
     try {
       const productRow = await sequelize.query(
-        `SELECT raw_data, skc_list, barcode FROM shein_full_products WHERE shop_id = :shopId AND spu_name = :spuName ORDER BY id DESC LIMIT 1`,
+        `SELECT p.raw_data, p.skc_list, p.barcode
+         FROM shein_full_products p
+         INNER JOIN shein_full_shops s ON s.id = p.shop_id
+         WHERE p.shop_id = :shopId AND p.spu_name = :spuName AND s.enterprise_id = :enterpriseId
+         ORDER BY p.id DESC
+         LIMIT 1`,
         {
-          replacements: { shopId, spuName },
+          replacements: { shopId, spuName, enterpriseId },
           type: QueryTypes.SELECT
         }
       );
@@ -583,21 +607,24 @@ router.post('/barcode-field', async (req, res) => {
   try {
     const { shopId, spuName } = req.body;
 
-    if (!shopId) {
-      return res.status(400).json({ success: false, message: 'shopId不能为空' });
-    }
+    const shopContext = await requireEnterpriseShop(req, res, shopId);
+    if (!shopContext) return;
+
     if (!spuName) {
       return res.status(400).json({ success: false, message: 'spuName不能为空' });
     }
 
+    const { enterpriseId } = shopContext;
+
     const productRows = await sequelize.query(
-      `SELECT id, shop_id, spu_name, barcode, updated_at
-       FROM shein_full_products
-       WHERE shop_id = :shopId AND spu_name = :spuName
-       ORDER BY id DESC
+      `SELECT p.id, p.shop_id, p.spu_name, p.barcode, p.updated_at
+       FROM shein_full_products p
+       INNER JOIN shein_full_shops s ON s.id = p.shop_id
+       WHERE p.shop_id = :shopId AND p.spu_name = :spuName AND s.enterprise_id = :enterpriseId
+       ORDER BY p.id DESC
        LIMIT 1`,
       {
-        replacements: { shopId, spuName },
+        replacements: { shopId, spuName, enterpriseId },
         type: QueryTypes.SELECT
       }
     );
@@ -644,6 +671,7 @@ router.post('/barcode-field', async (req, res) => {
  */
 router.get('/local', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
     const pageSize = Math.min(Math.max(parseInt(req.query.pageSize, 10) || 20, 1), 100);
     const offset = (page - 1) * pageSize;
@@ -659,24 +687,34 @@ router.get('/local', async (req, res) => {
       ? null
       : Number(req.query.mall_state);
 
+    if (shopId !== null) {
+      const shop = await SheinFullShopService.getShopById(shopId, enterpriseId);
+      if (!shop) {
+        return res.status(404).json({ success: false, message: '店铺不存在' });
+      }
+    }
+
     const hasShelfFilter = shelfStatus !== null && !Number.isNaN(shelfStatus);
     const hasMallFilter = mallState !== null && !Number.isNaN(mallState);
-    const where = [];
-    const replacements = {};
+    const where = ['s.enterprise_id = :enterpriseId'];
+    const replacements = { enterpriseId };
 
     if (shopId !== null) {
-      where.push('shop_id = :shopId');
+      where.push('p.shop_id = :shopId');
       replacements.shopId = shopId;
     }
 
-    const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+    const whereSql = `WHERE ${where.join(' AND ')}`;
 
     // 如果有SKU维度筛选，需要先取全量再过滤，保证 totalSpu 正确
     const needInMemoryFilter = Boolean(search) || hasShelfFilter || hasMallFilter;
 
     if (!needInMemoryFilter) {
       const [countRow] = await sequelize.query(
-        `SELECT COUNT(1) AS total FROM shein_full_products ${whereSql}`,
+        `SELECT COUNT(1) AS total
+         FROM shein_full_products p
+         INNER JOIN shein_full_shops s ON s.id = p.shop_id
+         ${whereSql}`,
         { replacements, type: QueryTypes.SELECT }
       );
 
@@ -692,14 +730,10 @@ router.get('/local', async (req, res) => {
       const list = await sequelize.query(
         `SELECT p.id, p.shop_id, p.spu_name, p.skc_name, p.product_name, p.brand_code, p.category_id, p.skc_list, p.barcode, p.raw_data
          FROM shein_full_products p
-         INNER JOIN (
-           SELECT id
-           FROM shein_full_products
-           ${whereSql}
-           ORDER BY updated_at DESC, id DESC
-           LIMIT :limit OFFSET :offset
-         ) page_ids ON page_ids.id = p.id
-         ORDER BY p.updated_at DESC, p.id DESC`,
+         INNER JOIN shein_full_shops s ON s.id = p.shop_id
+         ${whereSql}
+         ORDER BY p.updated_at DESC, p.id DESC
+         LIMIT :limit OFFSET :offset`,
         {
           replacements: { ...replacements, limit: pageSize, offset },
           type: QueryTypes.SELECT
@@ -722,8 +756,9 @@ router.get('/local', async (req, res) => {
     }
 
     const allSpuList = await sequelize.query(
-      `SELECT id, shop_id, spu_name, skc_name, product_name, brand_code, category_id, skc_list, barcode, raw_data
-       FROM shein_full_products
+      `SELECT p.id, p.shop_id, p.spu_name, p.skc_name, p.product_name, p.brand_code, p.category_id, p.skc_list, p.barcode, p.raw_data
+       FROM shein_full_products p
+       INNER JOIN shein_full_shops s ON s.id = p.shop_id
        ${whereSql}`,
       { replacements, type: QueryTypes.SELECT }
     );
@@ -791,7 +826,8 @@ router.get('/local', async (req, res) => {
  */
 router.get('/shops/:id', async (req, res) => {
   try {
-    const shop = await SheinFullShopService.getShopById(req.params.id);
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
+    const shop = await SheinFullShopService.getShopById(req.params.id, enterpriseId);
     if (!shop) {
       return res.status(404).json({ success: false, message: '店铺不存在' });
     }
@@ -810,7 +846,8 @@ router.get('/shops/:id', async (req, res) => {
  */
 router.post('/shops', async (req, res) => {
   try {
-    const result = await SheinFullShopService.createShop(req.body);
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
+    const result = await SheinFullShopService.createShop(req.body, enterpriseId);
     res.json({ success: true, data: result, message: '店铺创建成功，请进行授权' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -823,7 +860,8 @@ router.post('/shops', async (req, res) => {
  */
 router.put('/shops/:id', async (req, res) => {
   try {
-    const result = await SheinFullShopService.updateShop(req.params.id, req.body);
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
+    const result = await SheinFullShopService.updateShop(req.params.id, req.body, enterpriseId);
     res.json({ success: true, data: result });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -836,7 +874,8 @@ router.put('/shops/:id', async (req, res) => {
  */
 router.delete('/shops/:id', async (req, res) => {
   try {
-    const result = await SheinFullShopService.deleteShop(req.params.id);
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
+    const result = await SheinFullShopService.deleteShop(req.params.id, enterpriseId);
     res.json({ success: true, ...result });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -849,7 +888,8 @@ router.delete('/shops/:id', async (req, res) => {
  */
 router.post('/shops/:id/test', async (req, res) => {
   try {
-    const result = await SheinFullShopService.testConnection(req.params.id);
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
+    const result = await SheinFullShopService.testConnection(req.params.id, enterpriseId);
     res.json({ 
       success: result.valid, 
       message: result.valid ? '连接成功' : `连接失败: ${result.error}`,
@@ -869,6 +909,7 @@ router.post('/shops/:id/test', async (req, res) => {
  */
 router.post('/auth/url', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { shopId, redirectUrl } = req.body;
     
     if (!shopId) {
@@ -876,7 +917,7 @@ router.post('/auth/url', async (req, res) => {
     }
 
     // redirectUrl可选，不传则从数据库获取
-    const result = await SheinFullShopService.generateAuthUrl(shopId, redirectUrl || null);
+    const result = await SheinFullShopService.generateAuthUrl(shopId, redirectUrl || null, enterpriseId);
     
     res.json({ success: true, data: result });
   } catch (error) {
@@ -918,6 +959,7 @@ router.post('/auth/generate-url', async (req, res) => {
  */
 router.post('/auth/callback', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { shopId, tempToken } = req.body;
     
     if (!shopId) {
@@ -927,7 +969,7 @@ router.post('/auth/callback', async (req, res) => {
       return res.status(400).json({ success: false, message: 'tempToken不能为空' });
     }
 
-    const result = await SheinFullShopService.handleAuthCallback(shopId, tempToken);
+    const result = await SheinFullShopService.handleAuthCallback(shopId, tempToken, enterpriseId);
     res.json({ success: true, data: result });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -971,7 +1013,8 @@ router.post('/auth/get-token', async (req, res) => {
  */
 router.get('/auth/logs/:shopId', async (req, res) => {
   try {
-    const logs = await SheinFullShopService.getAuthLogs(req.params.shopId);
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
+    const logs = await SheinFullShopService.getAuthLogs(req.params.shopId, 50, enterpriseId);
     res.json({ success: true, data: logs });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -987,7 +1030,10 @@ router.get('/auth/logs/:shopId', async (req, res) => {
 router.post('/categories', async (req, res) => {
   try {
     const { shopId } = req.body;
-    const adapter = await getAdapter(shopId);
+    const shopContext = await requireEnterpriseShop(req, res, shopId);
+    if (!shopContext) return;
+    const { enterpriseId } = shopContext;
+    const adapter = await getAdapter(shopId, enterpriseId);
     const result = await adapter.getCategoryTree();
     res.json({ success: true, data: result.info });
   } catch (error) {
@@ -1002,7 +1048,10 @@ router.post('/categories', async (req, res) => {
 router.post('/attributes', async (req, res) => {
   try {
     const { shopId, productTypeIds } = req.body;
-    const adapter = await getAdapter(shopId);
+    const shopContext = await requireEnterpriseShop(req, res, shopId);
+    if (!shopContext) return;
+    const { enterpriseId } = shopContext;
+    const adapter = await getAdapter(shopId, enterpriseId);
     const result = await adapter.getAttributeTemplate(productTypeIds);
     res.json({ success: true, data: result.info });
   } catch (error) {
@@ -1017,7 +1066,10 @@ router.post('/attributes', async (req, res) => {
 router.post('/publish-standard', async (req, res) => {
   try {
     const { shopId, categoryId, spuName } = req.body;
-    const adapter = await getAdapter(shopId);
+    const shopContext = await requireEnterpriseShop(req, res, shopId);
+    if (!shopContext) return;
+    const { enterpriseId } = shopContext;
+    const adapter = await getAdapter(shopId, enterpriseId);
     const result = await adapter.getPublishStandard({ categoryId, spuName });
     res.json({ success: true, data: result.info });
   } catch (error) {
@@ -1034,7 +1086,10 @@ router.post('/publish-standard', async (req, res) => {
 router.post('/products', async (req, res) => {
   try {
     const { shopId, pageNum, pageSize, insertTimeStart, insertTimeEnd, updateTimeStart, updateTimeEnd } = req.body;
-    const adapter = await getAdapter(shopId);
+    const shopContext = await requireEnterpriseShop(req, res, shopId);
+    if (!shopContext) return;
+    const { enterpriseId } = shopContext;
+    const adapter = await getAdapter(shopId, enterpriseId);
     const result = await adapter.getProductList({
       pageNum, pageSize, insertTimeStart, insertTimeEnd, updateTimeStart, updateTimeEnd
     });
@@ -1051,7 +1106,10 @@ router.post('/products', async (req, res) => {
 router.post('/product-detail', async (req, res) => {
   try {
     const { shopId, spuName, languageList } = req.body;
-    const adapter = await getAdapter(shopId);
+    const shopContext = await requireEnterpriseShop(req, res, shopId);
+    if (!shopContext) return;
+    const { enterpriseId } = shopContext;
+    const adapter = await getAdapter(shopId, enterpriseId);
     const result = await adapter.getProductDetail(spuName, languageList || ['zh-cn']);
     res.json({ success: true, data: adapter.transformProductDetail(result.info) });
   } catch (error) {
@@ -1066,7 +1124,10 @@ router.post('/product-detail', async (req, res) => {
 router.post('/publish-product', async (req, res) => {
   try {
     const { shopId, productData } = req.body;
-    const adapter = await getAdapter(shopId);
+    const shopContext = await requireEnterpriseShop(req, res, shopId);
+    if (!shopContext) return;
+    const { enterpriseId } = shopContext;
+    const adapter = await getAdapter(shopId, enterpriseId);
     const result = await adapter.publishProduct(productData);
     res.json({ success: true, data: result.info });
   } catch (error) {
@@ -1081,7 +1142,10 @@ router.post('/publish-product', async (req, res) => {
 router.post('/transform-image', async (req, res) => {
   try {
     const { shopId, imageUrl, imageType } = req.body;
-    const adapter = await getAdapter(shopId);
+    const shopContext = await requireEnterpriseShop(req, res, shopId);
+    if (!shopContext) return;
+    const { enterpriseId } = shopContext;
+    const adapter = await getAdapter(shopId, enterpriseId);
     const result = await adapter.transformImage(imageUrl, imageType);
     res.json({ success: true, data: result.info });
   } catch (error) {
@@ -1096,7 +1160,10 @@ router.post('/transform-image', async (req, res) => {
 router.post('/suggest-category', async (req, res) => {
   try {
     const { shopId, url, productInfo } = req.body;
-    const adapter = await getAdapter(shopId);
+    const shopContext = await requireEnterpriseShop(req, res, shopId);
+    if (!shopContext) return;
+    const { enterpriseId } = shopContext;
+    const adapter = await getAdapter(shopId, enterpriseId);
     const result = await adapter.suggestCategory({ url, productInfo });
     res.json({ success: true, data: result.info });
   } catch (error) {
@@ -1116,9 +1183,9 @@ router.post('/print-barcode', async (req, res) => {
   try {
     const { shopId, data, type = 2, printFormatType = 1 } = req.body;
 
-    if (!shopId) {
-      return res.status(400).json({ success: false, message: '缺少shopId参数' });
-    }
+    const shopContext = await requireEnterpriseShop(req, res, shopId, '缺少shopId参数');
+    if (!shopContext) return;
+
     if (!data || !Array.isArray(data) || data.length === 0) {
       return res.status(400).json({ success: false, message: '缺少data参数或data为空' });
     }
@@ -1126,7 +1193,8 @@ router.post('/print-barcode', async (req, res) => {
       return res.status(400).json({ success: false, message: '单次打印数据不能超过200组' });
     }
 
-    const adapter = await getAdapter(shopId);
+    const { enterpriseId } = shopContext;
+    const adapter = await getAdapter(shopId, enterpriseId);
     const result = await adapter.printBarcode(data, type, printFormatType);
 
     res.json({
@@ -1148,7 +1216,10 @@ router.post('/print-barcode', async (req, res) => {
 router.post('/sku-sales', async (req, res) => {
   try {
     const { shopId, skuCodeList } = req.body;
-    const adapter = await getAdapter(shopId);
+    const shopContext = await requireEnterpriseShop(req, res, shopId);
+    if (!shopContext) return;
+    const { enterpriseId } = shopContext;
+    const adapter = await getAdapter(shopId, enterpriseId);
     const result = await adapter.getSkuSales(skuCodeList);
     res.json({ success: true, data: result.info });
   } catch (error) {
@@ -1165,7 +1236,10 @@ router.post('/sku-sales', async (req, res) => {
 router.post('/purchase-orders', async (req, res) => {
   try {
     const { shopId, ...params } = req.body;
-    const adapter = await getAdapter(shopId);
+    const shopContext = await requireEnterpriseShop(req, res, shopId);
+    if (!shopContext) return;
+    const { enterpriseId } = shopContext;
+    const adapter = await getAdapter(shopId, enterpriseId);
     const result = await adapter.getPurchaseOrders(params);
     const list = (result.info?.list || []).map(o => adapter.transformOrder(o));
     res.json({
@@ -1189,7 +1263,10 @@ router.post('/purchase-orders', async (req, res) => {
 router.post('/create-stock-order', async (req, res) => {
   try {
     const { shopId, paramList } = req.body;
-    const adapter = await getAdapter(shopId);
+    const shopContext = await requireEnterpriseShop(req, res, shopId);
+    if (!shopContext) return;
+    const { enterpriseId } = shopContext;
+    const adapter = await getAdapter(shopId, enterpriseId);
     const result = await adapter.createStockOrder(paramList);
     res.json({ success: true, data: result });
   } catch (error) {
@@ -1204,7 +1281,10 @@ router.post('/create-stock-order', async (req, res) => {
 router.post('/review-orders', async (req, res) => {
   try {
     const { shopId, ...params } = req.body;
-    const adapter = await getAdapter(shopId);
+    const shopContext = await requireEnterpriseShop(req, res, shopId);
+    if (!shopContext) return;
+    const { enterpriseId } = shopContext;
+    const adapter = await getAdapter(shopId, enterpriseId);
     const result = await adapter.getReviewOrders(params);
     res.json({ success: true, data: result.info });
   } catch (error) {
@@ -1219,7 +1299,10 @@ router.post('/review-orders', async (req, res) => {
 router.post('/stock-goods-list', async (req, res) => {
   try {
     const { shopId, pageNum, pageSize } = req.body;
-    const adapter = await getAdapter(shopId);
+    const shopContext = await requireEnterpriseShop(req, res, shopId);
+    if (!shopContext) return;
+    const { enterpriseId } = shopContext;
+    const adapter = await getAdapter(shopId, enterpriseId);
     const result = await adapter.getStockGoodsList({ pageNum, pageSize });
     res.json({ success: true, data: result.info });
   } catch (error) {
@@ -1234,7 +1317,10 @@ router.post('/stock-goods-list', async (req, res) => {
 router.post('/jit-orders', async (req, res) => {
   try {
     const { shopId, orderNos, selectJitMother } = req.body;
-    const adapter = await getAdapter(shopId);
+    const shopContext = await requireEnterpriseShop(req, res, shopId);
+    if (!shopContext) return;
+    const { enterpriseId } = shopContext;
+    const adapter = await getAdapter(shopId, enterpriseId);
     const result = await adapter.getMotherChildOrders(orderNos, selectJitMother);
     res.json({ success: true, data: result.info });
   } catch (error) {
@@ -1250,14 +1336,101 @@ router.post('/jit-orders', async (req, res) => {
  */
 router.post('/inventory', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { shopId, skuCodeList, skcNameList, spuNameList, warehouseType } = req.body;
-    const adapter = await getAdapter(shopId);
+    if (!shopId) {
+      return res.status(400).json({ success: false, message: 'shopId不能为空' });
+    }
+    const shop = await SheinFullShopService.getShopById(shopId, enterpriseId);
+    if (!shop) {
+      return res.status(404).json({ success: false, message: '店铺不存在' });
+    }
+    const adapter = await getAdapter(shopId, enterpriseId);
     const result = await adapter.getInventory({
       skuCodeList, skcNameList, spuNameList, warehouseType
     });
     res.json({ success: true, data: result.info });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.get('/inventory/list', async (req, res) => {
+  try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
+    const { shopId, warehouseType, keyword, page = 1, pageSize = 100 } = req.query;
+
+    if (!shopId) {
+      return res.status(400).json({ success: false, message: 'shopId不能为空' });
+    }
+
+    const shop = await SheinFullShopService.getShopById(shopId, enterpriseId);
+    if (!shop) {
+      return res.status(404).json({ success: false, message: '店铺不存在' });
+    }
+
+    const currentPage = Math.max(parseInt(page, 10) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(pageSize, 10) || 100, 1), 200);
+    const offset = (currentPage - 1) * limit;
+    const where = ['i.shop_id = :shopId'];
+    const replacements = { shopId, limit, offset };
+
+    if (warehouseType) {
+      where.push('i.warehouse_type = :warehouseType');
+      replacements.warehouseType = String(warehouseType);
+    }
+
+    if (keyword && String(keyword).trim()) {
+      where.push('(i.sku_code LIKE :keyword OR i.spu_name LIKE :keyword OR i.skc_name LIKE :keyword)');
+      replacements.keyword = `%${String(keyword).trim()}%`;
+    }
+
+    const whereSql = where.join(' AND ');
+
+    const [countRow] = await sequelize.query(
+      `SELECT COUNT(1) AS total
+       FROM shein_full_inventory i
+       INNER JOIN shein_full_shops s ON s.id = i.shop_id
+       WHERE ${whereSql} AND s.enterprise_id = :enterpriseId`,
+      { replacements: { ...replacements, enterpriseId }, type: QueryTypes.SELECT }
+    );
+
+    const rows = await sequelize.query(
+      `SELECT i.* FROM shein_full_inventory i
+       INNER JOIN shein_full_shops s ON s.id = i.shop_id
+       WHERE ${whereSql} AND s.enterprise_id = :enterpriseId
+       ORDER BY i.updated_at DESC, i.id DESC LIMIT :limit OFFSET :offset`,
+      { replacements: { ...replacements, enterpriseId }, type: QueryTypes.SELECT }
+    );
+
+    const list = rows.map(row => {
+      const rawData = parseJsonSafe(row.raw_data, {});
+      return {
+        ...row,
+        product_name_cn: rawData.productNameCn || rawData.product_name_cn || rawData.productName || null,
+        inventory: {
+          totalInventoryQuantity: Number(row.total_inventory || 0),
+          totalUsableInventory: Number(row.usable_inventory || 0),
+          totalLockedQuantity: Number(row.locked_quantity || 0),
+          totalTransitQuantity: Number(row.transit_quantity || 0),
+          tempLockQuantity: Number(row.temp_lock_quantity || 0),
+          warehouseCode: row.warehouse_code || null,
+          warehouseType: row.warehouse_type || null
+        }
+      };
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        list,
+        total: Number(countRow?.total || 0),
+        page: currentPage,
+        pageSize: limit
+      }
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
   }
 });
 
@@ -1270,10 +1443,12 @@ router.post('/inventory', async (req, res) => {
 router.post('/sku-categories', async (req, res) => {
   try {
     const { shopId, skus } = req.body;
-    if (!shopId) return res.status(400).json({ success: false, message: 'shopId必填' });
+    const shopContext = await requireEnterpriseShop(req, res, shopId, 'shopId必填');
+    if (!shopContext) return;
     if (!skus || !Array.isArray(skus) || skus.length === 0) return res.json({ success: true, data: {} });
 
-    const adapter = await getAdapter(shopId);
+    const { enterpriseId } = shopContext;
+    const adapter = await getAdapter(shopId, enterpriseId);
 
     // 1. 调用商品综合查询接口查 categoryId
     // 由于 skuCodeList 单次最多10个，需要分批查询
@@ -1369,10 +1544,12 @@ router.post('/sku-categories', async (req, res) => {
 router.post('/sku-label-metadata', async (req, res) => {
   try {
     const { shopId, skus } = req.body;
-    if (!shopId) return res.status(400).json({ success: false, message: 'shopId必填' });
+    const shopContext = await requireEnterpriseShop(req, res, shopId, 'shopId必填');
+    if (!shopContext) return;
     if (!skus || !Array.isArray(skus) || skus.length === 0) return res.json({ success: true, data: {} });
 
-    const adapter = await getAdapter(shopId);
+    const { enterpriseId } = shopContext;
+    const adapter = await getAdapter(shopId, enterpriseId);
     const targetSkus = Array.from(new Set(skus.filter(Boolean)));
     const baseLanguage = 'en';
     const attributeLanguage = 'zh-cn';
@@ -1555,7 +1732,10 @@ router.post('/sku-label-metadata', async (req, res) => {
 router.post('/shipping-basic', async (req, res) => {
   try {
     const { shopId, orderType, addressId } = req.body;
-    const adapter = await getAdapter(shopId);
+    const shopContext = await requireEnterpriseShop(req, res, shopId);
+    if (!shopContext) return;
+    const { enterpriseId } = shopContext;
+    const adapter = await getAdapter(shopId, enterpriseId);
     const result = await adapter.getShippingBasic(orderType, addressId);
     res.json({ success: true, data: result.info });
   } catch (error) {
@@ -1570,7 +1750,10 @@ router.post('/shipping-basic', async (req, res) => {
 router.post('/delivery-list', async (req, res) => {
   try {
     const { shopId, ...params } = req.body;
-    const adapter = await getAdapter(shopId);
+    const shopContext = await requireEnterpriseShop(req, res, shopId);
+    if (!shopContext) return;
+    const { enterpriseId } = shopContext;
+    const adapter = await getAdapter(shopId, enterpriseId);
     const result = await adapter.getDeliveryList(params);
     res.json({ success: true, data: result.info });
   } catch (error) {
@@ -1585,8 +1768,10 @@ router.post('/delivery-list', async (req, res) => {
 router.post('/express-company-list', async (req, res) => {
   try {
     const { shopId, ...params } = req.body;
-    if (!shopId) return res.status(400).json({ success: false, message: 'shopId不能为空' });
-    const adapter = await getAdapter(shopId);
+    const shopContext = await requireEnterpriseShop(req, res, shopId);
+    if (!shopContext) return;
+    const { enterpriseId } = shopContext;
+    const adapter = await getAdapter(shopId, enterpriseId);
     const result = await adapter.getExpressCompanyList(params);
     res.json({ success: true, data: result.info });
   } catch (error) {
@@ -1601,8 +1786,10 @@ router.post('/express-company-list', async (req, res) => {
 router.post('/warehouse-info', async (req, res) => {
   try {
     const { shopId, ...params } = req.body;
-    if (!shopId) return res.status(400).json({ success: false, message: 'shopId不能为空' });
-    const adapter = await getAdapter(shopId);
+    const shopContext = await requireEnterpriseShop(req, res, shopId);
+    if (!shopContext) return;
+    const { enterpriseId } = shopContext;
+    const adapter = await getAdapter(shopId, enterpriseId);
     const result = await adapter.getWarehouseInfo(params);
     res.json({ success: true, data: result.info });
   } catch (error) {
@@ -1617,8 +1804,10 @@ router.post('/warehouse-info', async (req, res) => {
 router.post('/create-delivery', async (req, res) => {
   try {
     const { shopId, ...params } = req.body;
-    if (!shopId) return res.status(400).json({ success: false, message: 'shopId不能为空' });
-    const adapter = await getAdapter(shopId);
+    const shopContext = await requireEnterpriseShop(req, res, shopId);
+    if (!shopContext) return;
+    const { enterpriseId } = shopContext;
+    const adapter = await getAdapter(shopId, enterpriseId);
     const result = await adapter.createDeliveryOrder(params);
     res.json({ success: true, data: result.info });
   } catch (error) {
@@ -1633,9 +1822,11 @@ router.post('/create-delivery', async (req, res) => {
 router.post('/print-delivery-label', async (req, res) => {
   try {
     const { shopId, deliveryNo } = req.body;
-    if (!shopId) return res.status(400).json({ success: false, message: 'shopId不能为空' });
+    const shopContext = await requireEnterpriseShop(req, res, shopId);
+    if (!shopContext) return;
     if (!deliveryNo) return res.status(400).json({ success: false, message: '发货单号不能为空' });
-    const adapter = await getAdapter(shopId);
+    const { enterpriseId } = shopContext;
+    const adapter = await getAdapter(shopId, enterpriseId);
     const result = await adapter.printDeliveryLabel(deliveryNo);
     res.json({ success: true, data: result.info });
   } catch (error) {
@@ -1650,8 +1841,10 @@ router.post('/print-delivery-label', async (req, res) => {
 router.post('/estimated-fee', async (req, res) => {
   try {
     const { shopId, ...params } = req.body;
-    if (!shopId) return res.status(400).json({ success: false, message: 'shopId不能为空' });
-    const adapter = await getAdapter(shopId);
+    const shopContext = await requireEnterpriseShop(req, res, shopId);
+    if (!shopContext) return;
+    const { enterpriseId } = shopContext;
+    const adapter = await getAdapter(shopId, enterpriseId);
     const result = await adapter.getEstimatedFee(params);
     res.json({ success: true, data: result.info });
   } catch (error) {
@@ -1668,7 +1861,10 @@ router.post('/estimated-fee', async (req, res) => {
 router.post('/report-list', async (req, res) => {
   try {
     const { shopId, ...params } = req.body;
-    const adapter = await getAdapter(shopId);
+    const shopContext = await requireEnterpriseShop(req, res, shopId);
+    if (!shopContext) return;
+    const { enterpriseId } = shopContext;
+    const adapter = await getAdapter(shopId, enterpriseId);
     const result = await adapter.getReportList(params);
     const list = (result.info?.reportOrderInfos || []).map(r => adapter.transformReport(r));
     res.json({
@@ -1687,7 +1883,10 @@ router.post('/report-list', async (req, res) => {
 router.post('/report-sales-detail', async (req, res) => {
   try {
     const { shopId, reportOrderNo, perPage, query } = req.body;
-    const adapter = await getAdapter(shopId);
+    const shopContext = await requireEnterpriseShop(req, res, shopId);
+    if (!shopContext) return;
+    const { enterpriseId } = shopContext;
+    const adapter = await getAdapter(shopId, enterpriseId);
     const result = await adapter.getReportSalesDetail(reportOrderNo, { perPage, query });
     res.json({ success: true, data: result.info });
   } catch (error) {
@@ -1702,7 +1901,10 @@ router.post('/report-sales-detail', async (req, res) => {
 router.post('/report-adjustment-detail', async (req, res) => {
   try {
     const { shopId, reportOrderNo, perPage, query } = req.body;
-    const adapter = await getAdapter(shopId);
+    const shopContext = await requireEnterpriseShop(req, res, shopId);
+    if (!shopContext) return;
+    const { enterpriseId } = shopContext;
+    const adapter = await getAdapter(shopId, enterpriseId);
     const result = await adapter.getReportAdjustmentDetail(reportOrderNo, { perPage, query });
     res.json({ success: true, data: result.info });
   } catch (error) {
@@ -1716,53 +1918,67 @@ router.post('/report-adjustment-detail', async (req, res) => {
  */
 router.post('/finance-reports/local', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { shopId, page = 1, pageSize = 20, reportOrderNo, includeDetails = false } = req.body;
 
     if (!shopId) {
       return res.status(400).json({ success: false, message: 'shopId 不能为空' });
     }
 
+    const shop = await SheinFullShopService.getShopById(shopId, enterpriseId);
+    if (!shop) {
+      return res.status(404).json({ success: false, message: '店铺不存在' });
+    }
+
     const limit = Math.min(parseInt(pageSize, 10) || 20, 200);
     const offset = (Math.max(parseInt(page, 10) || 1, 1) - 1) * limit;
-    const where = ['shop_id = :shopId'];
+    const where = ['r.shop_id = :shopId'];
     const replacements = { shopId, limit, offset };
 
     if (reportOrderNo) {
-      where.push('report_order_no = :reportOrderNo');
+      where.push('r.report_order_no = :reportOrderNo');
       replacements.reportOrderNo = reportOrderNo;
     }
 
     const whereSql = where.join(' AND ');
 
     const [countRow] = await sequelize.query(
-      `SELECT COUNT(1) AS total FROM shein_full_finance_reports WHERE ${whereSql}`,
-      { replacements, type: QueryTypes.SELECT }
+      `SELECT COUNT(1) AS total
+       FROM shein_full_finance_reports r
+       INNER JOIN shein_full_shops s ON s.id = r.shop_id
+       WHERE ${whereSql} AND s.enterprise_id = :enterpriseId`,
+      { replacements: { ...replacements, enterpriseId }, type: QueryTypes.SELECT }
     );
 
     const reports = await sequelize.query(
-      `SELECT * FROM shein_full_finance_reports WHERE ${whereSql}
-       ORDER BY add_time DESC, id DESC LIMIT :limit OFFSET :offset`,
-      { replacements, type: QueryTypes.SELECT }
+      `SELECT r.* FROM shein_full_finance_reports r
+       INNER JOIN shein_full_shops s ON s.id = r.shop_id
+       WHERE ${whereSql} AND s.enterprise_id = :enterpriseId
+       ORDER BY r.add_time DESC, r.id DESC LIMIT :limit OFFSET :offset`,
+      { replacements: { ...replacements, enterpriseId }, type: QueryTypes.SELECT }
     );
 
     if (includeDetails && reports.length > 0) {
       for (const report of reports) {
         const detailReplacements = {
           shopId,
+          enterpriseId,
           reportOrderNo: report.report_order_no
         };
 
         report.salesDetails = await sequelize.query(
-          `SELECT * FROM shein_full_finance_report_sales_details
-           WHERE shop_id = :shopId AND report_order_no = :reportOrderNo
-           ORDER BY add_time DESC, id DESC`,
+          `SELECT d.* FROM shein_full_finance_report_sales_details d
+           INNER JOIN shein_full_shops s ON s.id = d.shop_id
+           WHERE d.shop_id = :shopId AND d.report_order_no = :reportOrderNo AND s.enterprise_id = :enterpriseId
+           ORDER BY d.add_time DESC, d.id DESC`,
           { replacements: detailReplacements, type: QueryTypes.SELECT }
         );
 
         report.adjustmentDetails = await sequelize.query(
-          `SELECT * FROM shein_full_finance_report_adjustment_details
-           WHERE shop_id = :shopId AND report_order_no = :reportOrderNo
-           ORDER BY add_time DESC, id DESC`,
+          `SELECT d.* FROM shein_full_finance_report_adjustment_details d
+           INNER JOIN shein_full_shops s ON s.id = d.shop_id
+           WHERE d.shop_id = :shopId AND d.report_order_no = :reportOrderNo AND s.enterprise_id = :enterpriseId
+           ORDER BY d.add_time DESC, d.id DESC`,
           { replacements: detailReplacements, type: QueryTypes.SELECT }
         );
       }
@@ -1790,8 +2006,16 @@ router.post('/finance-reports/local', async (req, res) => {
  */
 router.post('/batch-sync', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { shopId, syncTypes, params = {} } = req.body;
-    const adapter = await getAdapter(shopId);
+    if (!shopId) {
+      return res.status(400).json({ success: false, message: 'shopId不能为空' });
+    }
+    const shop = await SheinFullShopService.getShopById(shopId, enterpriseId);
+    if (!shop) {
+      return res.status(404).json({ success: false, message: '店铺不存在' });
+    }
+    const adapter = await getAdapter(shopId, enterpriseId);
     const results = {};
 
     for (const syncType of syncTypes) {
@@ -1826,10 +2050,6 @@ router.post('/batch-sync', async (req, res) => {
   }
 });
 
-// ==================== 数据同步到数据库 ====================
-
-const syncService = require('../services/shein-full-sync.service');
-
 /**
  * 批量同步数据（异步非阻塞）
  * POST /api/shein-full-sync/batch
@@ -1837,6 +2057,7 @@ const syncService = require('../services/shein-full-sync.service');
  */
 router.post('/batch', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { shopIds, dataTypes, platform, ...params } = req.body;
 
     if (!shopIds || !Array.isArray(shopIds) || shopIds.length === 0) {
@@ -1852,7 +2073,11 @@ router.post('/batch', async (req, res) => {
     let existingMessage = '';
     
     for (const shopId of shopIds) {
-      const result = await syncService.batchSync(shopId, dataTypes, params);
+      const shop = await SheinFullShopService.getShopById(shopId, enterpriseId);
+      if (!shop) {
+        return res.status(404).json({ success: false, message: `店铺不存在: ${shopId}` });
+      }
+      const result = await syncService.batchSync(shopId, dataTypes, params, enterpriseId);
       tasks.push({ 
         shopId, 
         taskId: result.taskId,
@@ -1901,8 +2126,13 @@ router.get('/status/:taskId', async (req, res) => {
  */
 router.get('/running/:shopId', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const shopId = parseInt(req.params.shopId);
-    const tasks = syncService.getRunningTasksForShop(shopId);
+    const shop = await SheinFullShopService.getShopById(shopId, enterpriseId);
+    if (!shop) {
+      return res.status(404).json({ success: false, message: '店铺不存在' });
+    }
+    const tasks = await syncService.getRunningTasksForShop(shopId, enterpriseId);
     res.json({ success: true, data: tasks });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -1915,11 +2145,16 @@ router.get('/running/:shopId', async (req, res) => {
  */
 router.post('/sync/purchase-orders', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { shopId, ...params } = req.body;
     if (!shopId) {
       return res.status(400).json({ success: false, message: 'shopId不能为空' });
     }
-    const result = await syncService.syncPurchaseOrders(shopId, params);
+    const shop = await SheinFullShopService.getShopById(shopId, enterpriseId);
+    if (!shop) {
+      return res.status(404).json({ success: false, message: '店铺不存在' });
+    }
+    const result = await syncService.syncPurchaseOrders(shopId, params, enterpriseId);
     res.json({ success: true, data: result });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -1932,11 +2167,16 @@ router.post('/sync/purchase-orders', async (req, res) => {
  */
 router.post('/sync/delivery-orders', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { shopId, ...params } = req.body;
     if (!shopId) {
       return res.status(400).json({ success: false, message: 'shopId不能为空' });
     }
-    const result = await syncService.syncDeliveryOrders(shopId, params);
+    const shop = await SheinFullShopService.getShopById(shopId, enterpriseId);
+    if (!shop) {
+      return res.status(404).json({ success: false, message: '店铺不存在' });
+    }
+    const result = await syncService.syncDeliveryOrders(shopId, params, enterpriseId);
     res.json({ success: true, data: result });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -1949,11 +2189,16 @@ router.post('/sync/delivery-orders', async (req, res) => {
  */
 router.post('/sync/products', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { shopId, ...params } = req.body;
     if (!shopId) {
       return res.status(400).json({ success: false, message: 'shopId不能为空' });
     }
-    const result = await syncService.syncProducts(shopId, params);
+    const shop = await SheinFullShopService.getShopById(shopId, enterpriseId);
+    if (!shop) {
+      return res.status(404).json({ success: false, message: '店铺不存在' });
+    }
+    const result = await syncService.syncProducts(shopId, params, enterpriseId);
     res.json({ success: true, data: result });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -1966,11 +2211,16 @@ router.post('/sync/products', async (req, res) => {
  */
 router.post('/sync/reports', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { shopId, ...params } = req.body;
     if (!shopId) {
       return res.status(400).json({ success: false, message: 'shopId不能为空' });
     }
-    const result = await syncService.syncReports(shopId, params);
+    const shop = await SheinFullShopService.getShopById(shopId, enterpriseId);
+    if (!shop) {
+      return res.status(404).json({ success: false, message: '店铺不存在' });
+    }
+    const result = await syncService.syncReports(shopId, params, enterpriseId);
     res.json({ success: true, data: result });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -1983,11 +2233,16 @@ router.post('/sync/reports', async (req, res) => {
  */
 router.post('/sync/inventory', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { shopId, ...params } = req.body;
     if (!shopId) {
       return res.status(400).json({ success: false, message: 'shopId不能为空' });
     }
-    const result = await syncService.syncInventory(shopId, params);
+    const shop = await SheinFullShopService.getShopById(shopId, enterpriseId);
+    if (!shop) {
+      return res.status(404).json({ success: false, message: '店铺不存在' });
+    }
+    const result = await syncService.syncInventory(shopId, params, enterpriseId);
     res.json({ success: true, data: result });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

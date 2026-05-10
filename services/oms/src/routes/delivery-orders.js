@@ -9,6 +9,7 @@ const express = require('express');
 const router = express.Router();
 const { sequelize } = require('../models');
 const { QueryTypes } = require('sequelize');
+const { getRequiredEnterpriseIdFromRequest } = require('../services/tenant-context.service');
 
 // 平台表配置
 const platformTables = {
@@ -26,6 +27,7 @@ const platformTables = {
  */
 router.get('/', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const {
       page = 1,
       pageSize = 20,
@@ -58,8 +60,8 @@ router.get('/', async (req, res) => {
     const offset = (parseInt(page) - 1) * parseInt(pageSize || limit || 20);
     const pageLimit = parseInt(pageSize || limit || 20);
 
-    let whereClause = '1=1';
-    const replacements = [];
+    let whereClause = 'd.enterprise_id = ?';
+    const replacements = [enterpriseId];
 
     if (shopId) {
       whereClause += ' AND d.shop_id = ?';
@@ -145,6 +147,7 @@ router.get('/', async (req, res) => {
  */
 router.get('/stats', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { platform = 'shein', shopId } = req.query;
     const platformKey = platform.toLowerCase();
     const tables = platformTables[platformKey];
@@ -156,8 +159,8 @@ router.get('/stats', async (req, res) => {
       });
     }
 
-    let whereClause = '1=1';
-    const replacements = [];
+    let whereClause = 'enterprise_id = ?';
+    const replacements = [enterpriseId];
 
     if (shopId) {
       whereClause += ' AND shop_id = ?';
@@ -187,9 +190,14 @@ router.get('/stats', async (req, res) => {
  */
 router.post('/sync', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const axios = require('axios');
-    const syncEngineUrl = process.env.SYNC_ENGINE_URL || 'http://localhost:5001';
-    const response = await axios.post(`${syncEngineUrl}/api/shein-full/sync/delivery-orders`, req.body);
+    const syncEngineUrl = process.env.SYNC_ENGINE_URL || `http://${process.env.SYNC_ENGINE_HOST || 'localhost'}:${process.env.SYNC_ENGINE_PORT || 5001}`;
+    const response = await axios.post(`${syncEngineUrl}/api/shein-full/sync/delivery-orders`, req.body, {
+      headers: {
+        'x-enterprise-id': enterpriseId
+      }
+    });
     res.json(response.data);
   } catch (error) {
     console.error('[同步发货单] 错误:', error.message);
@@ -203,6 +211,7 @@ router.post('/sync', async (req, res) => {
  */
 router.get('/:id', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { id } = req.params;
     const { platform = 'shein' } = req.query;
     
@@ -216,8 +225,8 @@ router.get('/:id', async (req, res) => {
     }
 
     const [delivery] = await sequelize.query(`
-      SELECT d.* FROM ${tables.orders} d WHERE d.id = ?
-    `, { replacements: [id], type: QueryTypes.SELECT });
+      SELECT d.* FROM ${tables.orders} d WHERE d.id = ? AND d.enterprise_id = ?
+    `, { replacements: [id, enterpriseId], type: QueryTypes.SELECT });
 
     if (!delivery) {
       console.log(`[发货单详情] 发货单不存在: id=${id}`);

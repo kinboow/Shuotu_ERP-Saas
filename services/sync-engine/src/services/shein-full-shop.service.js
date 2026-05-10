@@ -5,17 +5,60 @@
 const { sequelize } = require('../models');
 const { QueryTypes } = require('sequelize');
 const SheinFullAuthService = require('./shein-full-auth.service');
+const {
+  ensureTenantColumns,
+  normalizeEnterpriseId,
+  getCurrentEnterpriseId
+} = require('./tenant-context.service');
 
 class SheinFullShopService {
+  static resolveEnterpriseId(enterpriseId) {
+    return normalizeEnterpriseId(enterpriseId ?? getCurrentEnterpriseId());
+  }
+
+  static async getScopedPlatformConfig(enterpriseId = undefined) {
+    await ensureTenantColumns();
+
+    const scopedEnterpriseId = this.resolveEnterpriseId(enterpriseId);
+    const enterpriseIds = scopedEnterpriseId === null ? [0] : [scopedEnterpriseId, 0];
+    const preferredEnterpriseId = scopedEnterpriseId === null ? 0 : scopedEnterpriseId;
+
+    const results = await sequelize.query(
+      `SELECT enterprise_id, app_key, app_secret, callback_url
+       FROM platform_configs
+       WHERE platform_name = 'shein_full'
+         AND enterprise_id IN (:enterpriseIds)
+         AND status = 1
+       ORDER BY CASE WHEN enterprise_id = :preferredEnterpriseId THEN 0 ELSE 1 END, id ASC
+       LIMIT 1`,
+      {
+        replacements: { enterpriseIds, preferredEnterpriseId },
+        type: QueryTypes.SELECT
+      }
+    );
+
+    return results[0] || null;
+  }
   
   /**
    * 获取所有店铺列表
    */
-  static async getAllShops(includeDisabled = false) {
-    const whereClause = includeDisabled ? '' : 'WHERE status = 1';
+  static async getAllShops(includeDisabled = false, enterpriseId = undefined) {
+    await ensureTenantColumns();
+
+    const scopedEnterpriseId = this.resolveEnterpriseId(enterpriseId);
+    const conditions = ['enterprise_id = :enterpriseId'];
+    if (!includeDisabled) {
+      conditions.push('status = 1');
+    }
+
+    const whereClause = `WHERE ${conditions.join(' AND ')}`;
     const shops = await sequelize.query(`
       SELECT * FROM shein_full_shops ${whereClause} ORDER BY created_at DESC
-    `, { type: QueryTypes.SELECT });
+    `, {
+      replacements: { enterpriseId: scopedEnterpriseId ?? 0 },
+      type: QueryTypes.SELECT
+    });
     const productSyncCheckpointMap = await this.getProductSyncCheckpointMap(shops.map(shop => shop.id));
     
     // 隐藏敏感信息
@@ -121,10 +164,16 @@ class SheinFullShopService {
   /**
    * 获取单个店铺详情
    */
-  static async getShopById(id) {
+  static async getShopById(id, enterpriseId = undefined) {
+    await ensureTenantColumns();
+
+    const scopedEnterpriseId = this.resolveEnterpriseId(enterpriseId);
     const [shop] = await sequelize.query(`
-      SELECT * FROM shein_full_shops WHERE id = ?
-    `, { replacements: [id], type: QueryTypes.SELECT });
+      SELECT * FROM shein_full_shops WHERE id = ? AND enterprise_id = ?
+    `, {
+      replacements: [id, scopedEnterpriseId ?? 0],
+      type: QueryTypes.SELECT
+    });
     
     return shop || null;
   }
@@ -132,12 +181,8 @@ class SheinFullShopService {
   /**
    * 获取平台配置的App凭证（只从数据库读取）
    */
-  static async getPlatformCredentials() {
-    const results = await sequelize.query(`
-      SELECT app_key, app_secret FROM platform_configs WHERE platform_name = 'shein_full'
-    `, { type: QueryTypes.SELECT });
-    
-    const config = results[0];
+  static async getPlatformCredentials(enterpriseId = undefined) {
+    const config = await this.getScopedPlatformConfig(enterpriseId);
     if (!config) {
       throw new Error('未找到SHEIN平台配置，请检查platform_configs表');
     }
@@ -153,13 +198,14 @@ class SheinFullShopService {
    * 创建店铺 (未授权状态)
    * 只需要店铺名称，App凭证从平台配置获取，始终使用生产环境
    */
-  static async createShop(data) {
+  static async createShop(data, enterpriseId = undefined) {
     const { shopName, remark } = data;
+    const scopedEnterpriseId = this.resolveEnterpriseId(enterpriseId);
     
     if (!shopName) throw new Error('店铺名称不能为空');
 
     // 从平台配置获取App凭证
-    const { appId, appSecret } = await this.getPlatformCredentials();
+    const { appId, appSecret } = await this.getPlatformCredentials(scopedEnterpriseId);
 
     // 始终使用生产环境
     const isTest = false;
@@ -167,10 +213,11 @@ class SheinFullShopService {
     
     const [result] = await sequelize.query(`
       INSERT INTO shein_full_shops 
-      (shop_name, app_id, app_secret, is_test, base_url, auth_url, auth_status, status, remark, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, 0, 1, ?, NOW())
+      (enterprise_id, shop_name, app_id, app_secret, is_test, base_url, auth_url, auth_status, status, remark, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1, ?, NOW())
     `, {
       replacements: [
+        scopedEnterpriseId ?? 0,
         shopName,
         appId,
         appSecret,
@@ -189,17 +236,16 @@ class SheinFullShopService {
    * @param {number} shopId - 店铺ID
    * @param {string} customRedirectUrl - 自定义回调地址（可选，不传则从数据库获取）
    */
-  static async generateAuthUrl(shopId, customRedirectUrl = null) {
-    const shop = await this.getShopById(shopId);
+  static async generateAuthUrl(shopId, customRedirectUrl = null, enterpriseId = undefined) {
+    const scopedEnterpriseId = this.resolveEnterpriseId(enterpriseId);
+    const shop = await this.getShopById(shopId, scopedEnterpriseId);
     if (!shop) throw new Error('店铺不存在');
 
     // 获取回调地址
     let redirectUrl = customRedirectUrl;
     if (!redirectUrl) {
       // 从数据库获取平台配置的回调地址
-      const [platformConfig] = await sequelize.query(`
-        SELECT callback_url FROM platform_configs WHERE platform_name = 'shein_full'
-      `, { type: QueryTypes.SELECT });
+      const platformConfig = await this.getScopedPlatformConfig(scopedEnterpriseId);
       
       if (platformConfig?.callback_url) {
         // 构建完整的回调URL
@@ -231,8 +277,8 @@ class SheinFullShopService {
   /**
    * 处理授权回调
    */
-  static async handleAuthCallback(shopId, tempToken) {
-    const shop = await this.getShopById(shopId);
+  static async handleAuthCallback(shopId, tempToken, enterpriseId = undefined) {
+    const shop = await this.getShopById(shopId, enterpriseId);
     if (!shop) throw new Error('店铺不存在');
 
     try {
@@ -291,8 +337,8 @@ class SheinFullShopService {
   /**
    * 测试店铺连接
    */
-  static async testConnection(shopId) {
-    const shop = await this.getShopById(shopId);
+  static async testConnection(shopId, enterpriseId = undefined) {
+    const shop = await this.getShopById(shopId, enterpriseId);
     if (!shop) throw new Error('店铺不存在');
     if (shop.auth_status !== 1) throw new Error('店铺未授权');
     if (!shop.open_key_id || !shop.secret_key) throw new Error('店铺密钥缺失');
@@ -316,8 +362,9 @@ class SheinFullShopService {
   /**
    * 更新店铺信息
    */
-  static async updateShop(shopId, data) {
-    const shop = await this.getShopById(shopId);
+  static async updateShop(shopId, data, enterpriseId = undefined) {
+    const scopedEnterpriseId = this.resolveEnterpriseId(enterpriseId);
+    const shop = await this.getShopById(shopId, scopedEnterpriseId);
     if (!shop) throw new Error('店铺不存在');
 
     const updates = [];
@@ -350,23 +397,25 @@ class SheinFullShopService {
 
     updates.push('updated_at = NOW()');
     values.push(shopId);
+    values.push(scopedEnterpriseId ?? 0);
 
     await sequelize.query(`
-      UPDATE shein_full_shops SET ${updates.join(', ')} WHERE id = ?
+      UPDATE shein_full_shops SET ${updates.join(', ')} WHERE id = ? AND enterprise_id = ?
     `, { replacements: values });
 
-    return this.getShopById(shopId);
+    return this.getShopById(shopId, scopedEnterpriseId);
   }
 
   /**
    * 删除店铺
    */
-  static async deleteShop(shopId) {
-    const shop = await this.getShopById(shopId);
+  static async deleteShop(shopId, enterpriseId = undefined) {
+    const scopedEnterpriseId = this.resolveEnterpriseId(enterpriseId);
+    const shop = await this.getShopById(shopId, scopedEnterpriseId);
     if (!shop) throw new Error('店铺不存在');
 
-    await sequelize.query(`DELETE FROM shein_full_shops WHERE id = ?`, {
-      replacements: [shopId]
+    await sequelize.query(`DELETE FROM shein_full_shops WHERE id = ? AND enterprise_id = ?`, {
+      replacements: [shopId, scopedEnterpriseId ?? 0]
     });
 
     return { success: true, message: '删除成功' };
@@ -398,7 +447,10 @@ class SheinFullShopService {
   /**
    * 获取授权日志
    */
-  static async getAuthLogs(shopId, limit = 50) {
+  static async getAuthLogs(shopId, limit = 50, enterpriseId = undefined) {
+    const shop = await this.getShopById(shopId, enterpriseId);
+    if (!shop) throw new Error('店铺不存在');
+
     return await sequelize.query(`
       SELECT * FROM shein_full_auth_logs 
       WHERE shop_id = ? 
@@ -410,8 +462,8 @@ class SheinFullShopService {
   /**
    * 获取已授权的店铺配置 (用于适配器)
    */
-  static async getShopConfig(shopId) {
-    const shop = await this.getShopById(shopId);
+  static async getShopConfig(shopId, enterpriseId = undefined) {
+    const shop = await this.getShopById(shopId, enterpriseId);
     if (!shop) throw new Error('店铺不存在');
     if (shop.status !== 1) throw new Error('店铺已禁用');
     if (shop.auth_status !== 1) throw new Error('店铺未授权，请先完成授权');

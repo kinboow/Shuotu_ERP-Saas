@@ -1,0 +1,48 @@
+name: Deploy GHCR Images
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Image tag to deploy
+        required: false
+        default: latest
+  workflow_run:
+    workflows:
+      - Build And Push GHCR Images
+    types:
+      - completed
+
+jobs:
+  deploy:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine deploy image tag
+        id: tag
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "image_tag=${{ github.event.inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "image_tag=latest" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy to production server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: ${{ secrets.PROD_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          script: |
+            set -e
+            cd "${{ secrets.PROD_APP_DIR }}"
+            chmod +x deploy-ghcr.sh
+            GHCR_USERNAME="${{ secrets.GHCR_PULL_USERNAME }}" \
+            GHCR_TOKEN="${{ secrets.GHCR_PULL_TOKEN }}" \
+            IMAGE_TAG_OVERRIDE="${{ steps.tag.outputs.image_tag }}" \
+            ./deploy-ghcr.sh

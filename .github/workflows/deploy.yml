@@ -1,0 +1,20 @@
+name: Deploy Production
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to production server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: ${{ secrets.PROD_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          script: |
+            set -e
+            cd "${{ secrets.PROD_APP_DIR }}"
+            chmod +x deploy-production.sh
+            DEPLOY_BRANCH="${{ github.ref_name }}" ./deploy-production.sh

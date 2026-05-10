@@ -6,6 +6,75 @@ const router = express.Router();
 const { sequelize } = require('../models');
 const { QueryTypes } = require('sequelize');
 const authService = require('../services/auth');
+const {
+  ensureTenantTables,
+  getUserEnterpriseContext,
+  assertEnterpriseAdmin
+} = require('../services/enterprise-context');
+
+async function getRequestContext(req) {
+  await ensureTenantTables();
+
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  if (!token) {
+    throw new Error('未登录');
+  }
+
+  const { valid, decoded, error } = await authService.verifyAccessToken(token);
+  if (!valid) {
+    throw new Error(error || 'Token无效');
+  }
+
+  const users = await sequelize.query(
+    'SELECT id, user_id, username, real_name, phone, email, role_id, is_admin, status FROM users WHERE id = :userId AND status = :status LIMIT 1',
+    {
+      replacements: { userId: decoded.userId, status: 'ACTIVE' },
+      type: QueryTypes.SELECT
+    }
+  );
+
+  if (!users.length) {
+    throw new Error('用户不存在或已禁用');
+  }
+
+  const user = users[0];
+  const enterpriseContext = await getUserEnterpriseContext(user.id, decoded.enterpriseId);
+  if (!enterpriseContext.currentEnterprise) {
+    throw new Error('当前账号尚未加入企业');
+  }
+
+  return {
+    decoded,
+    user,
+    enterpriseContext,
+    currentEnterprise: enterpriseContext.currentEnterprise,
+    currentEnterpriseId: enterpriseContext.currentEnterprise.id
+  };
+}
+
+async function getEnterpriseUserById(enterpriseId, userId) {
+  const users = await sequelize.query(
+    `SELECT u.*, r.role_name, r.role_code,
+            em.enterprise_id, em.member_type, em.status AS member_status, em.is_owner, em.joined_at
+     FROM enterprise_members em
+     JOIN users u ON u.id = em.user_id
+     LEFT JOIN roles r ON u.role_id = r.id
+     WHERE em.enterprise_id = :enterpriseId AND em.user_id = :userId
+     LIMIT 1`,
+    {
+      replacements: { enterpriseId, userId },
+      type: QueryTypes.SELECT
+    }
+  );
+
+  if (!users.length) {
+    return null;
+  }
+
+  const user = users[0];
+  user.status = user.member_status || user.status;
+  return user;
+}
 
 /**
  * 获取用户列表
@@ -13,11 +82,14 @@ const authService = require('../services/auth');
  */
 router.get('/', async (req, res) => {
   try {
+    const auth = await getRequestContext(req);
+    await assertEnterpriseAdmin(auth.user.id, auth.currentEnterpriseId);
+
     const { page = 1, limit = 20, keyword = '', roleId = '', status = '' } = req.query;
     const offset = (page - 1) * limit;
     
-    let whereClause = 'WHERE 1=1';
-    const params = {};
+    let whereClause = 'WHERE em.enterprise_id = :enterpriseId';
+    const params = { enterpriseId: auth.currentEnterpriseId };
     
     if (keyword) {
       whereClause += ' AND (u.username LIKE :keyword OR u.real_name LIKE :keyword OR u.phone LIKE :keyword)';
@@ -30,12 +102,17 @@ router.get('/', async (req, res) => {
     }
     
     if (status) {
-      whereClause += ' AND u.status = :status';
+      whereClause += ' AND em.status = :status';
       params.status = status;
     }
     
     // 查询总数
-    const countQuery = `SELECT COUNT(*) as total FROM users u ${whereClause}`;
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM enterprise_members em
+      JOIN users u ON u.id = em.user_id
+      ${whereClause}
+    `;
     const countResult = await sequelize.query(countQuery, {
       replacements: params,
       type: QueryTypes.SELECT
@@ -45,8 +122,10 @@ router.get('/', async (req, res) => {
     const listQuery = `
       SELECT u.id, u.user_id, u.username, u.real_name, u.phone, u.email, u.avatar,
         u.role_id, r.role_name, r.role_code, u.is_admin, u.department, u.position,
-        u.status, u.last_login_at, u.login_ip, u.login_count, u.created_at
-      FROM users u
+        em.status, em.member_type, em.is_owner, em.joined_at,
+        u.last_login_at, u.login_ip, u.login_count, u.created_at
+      FROM enterprise_members em
+      JOIN users u ON u.id = em.user_id
       LEFT JOIN roles r ON u.role_id = r.id
       ${whereClause}
       ORDER BY u.is_admin DESC, u.created_at DESC
@@ -77,25 +156,18 @@ router.get('/', async (req, res) => {
  */
 router.get('/:id', async (req, res) => {
   try {
+    const auth = await getRequestContext(req);
     const { id } = req.params;
-    
-    const query = `
-      SELECT u.*, r.role_name, r.role_code
-      FROM users u
-      LEFT JOIN roles r ON u.role_id = r.id
-      WHERE u.id = :id
-    `;
-    
-    const users = await sequelize.query(query, {
-      replacements: { id },
-      type: QueryTypes.SELECT
-    });
-    
-    if (users.length === 0) {
-      return res.json({ success: false, message: '用户不存在' });
+
+    const user = await getEnterpriseUserById(auth.currentEnterpriseId, id);
+    if (!user) {
+      return res.json({ success: false, message: '用户不存在或不属于当前企业' });
     }
-    
-    const user = users[0];
+
+    if (Number(user.id) !== Number(auth.user.id)) {
+      await assertEnterpriseAdmin(auth.user.id, auth.currentEnterpriseId);
+    }
+
     delete user.password; // 不返回密码
     
     res.json({ success: true, data: user });
@@ -111,6 +183,9 @@ router.get('/:id', async (req, res) => {
  */
 router.post('/', async (req, res) => {
   try {
+    const auth = await getRequestContext(req);
+    await assertEnterpriseAdmin(auth.user.id, auth.currentEnterpriseId);
+
     const { username, password, realName, phone, email, roleId, department, position, status = 'ACTIVE' } = req.body;
     
     if (!username || !password) {
@@ -138,7 +213,7 @@ router.post('/', async (req, res) => {
     // 创建用户
     await sequelize.query(`
       INSERT INTO users (user_id, username, password, real_name, phone, email, role_id, department, position, status, is_admin)
-      VALUES (:userId, :username, :password, :realName, :phone, :email, :roleId, :department, :position, :status, 0)
+      VALUES (:userId, :username, :password, :realName, :phone, :email, :roleId, :department, :position, :userStatus, 0)
     `, {
       replacements: { 
         userId, 
@@ -150,10 +225,32 @@ router.post('/', async (req, res) => {
         roleId: roleId || null, 
         department: department || null, 
         position: position || null, 
-        status 
+        userStatus: 'ACTIVE'
       },
       type: QueryTypes.INSERT
     });
+
+    const createdUsers = await sequelize.query(
+      'SELECT id FROM users WHERE user_id = :userId LIMIT 1',
+      {
+        replacements: { userId },
+        type: QueryTypes.SELECT
+      }
+    );
+
+    await sequelize.query(
+      `INSERT INTO enterprise_members (enterprise_id, user_id, member_type, status, is_owner, joined_at, approved_by, created_at, updated_at)
+       VALUES (:enterpriseId, :userId, 'member', :status, 0, NOW(), :approvedBy, NOW(), NOW())`,
+      {
+        replacements: {
+          enterpriseId: auth.currentEnterpriseId,
+          userId: createdUsers[0].id,
+          status,
+          approvedBy: auth.user.id
+        },
+        type: QueryTypes.INSERT
+      }
+    );
     
     res.json({ success: true, message: '用户创建成功' });
   } catch (error) {
@@ -168,24 +265,49 @@ router.post('/', async (req, res) => {
  */
 router.put('/:id', async (req, res) => {
   try {
+    const auth = await getRequestContext(req);
     const { id } = req.params;
     const { realName, phone, email, roleId, department, position, status, avatar } = req.body;
     
     // 检查用户是否存在
-    const users = await sequelize.query('SELECT * FROM users WHERE id = :id', {
-      replacements: { id },
-      type: QueryTypes.SELECT
-    });
-    
-    if (users.length === 0) {
-      return res.json({ success: false, message: '用户不存在' });
+    const user = await getEnterpriseUserById(auth.currentEnterpriseId, id);
+    if (!user) {
+      return res.json({ success: false, message: '用户不存在或不属于当前企业' });
     }
-    
-    const user = users[0];
+
+    let canManageOthers = false;
+    try {
+      await assertEnterpriseAdmin(auth.user.id, auth.currentEnterpriseId);
+      canManageOthers = true;
+    } catch (permissionError) {
+      if (Number(user.id) !== Number(auth.user.id)) {
+        throw permissionError;
+      }
+    }
+
+    if (!canManageOthers && (roleId !== undefined || status !== undefined)) {
+      return res.json({ success: false, message: '当前用户无权修改角色或状态' });
+    }
     
     // 主账号不能修改角色
     if (user.is_admin === 1 && roleId && roleId !== user.role_id) {
       return res.json({ success: false, message: '主账号角色不能修改' });
+    }
+
+    if (canManageOthers && status !== undefined) {
+      await sequelize.query(
+        `UPDATE enterprise_members
+         SET status = :status, updated_at = NOW()
+         WHERE enterprise_id = :enterpriseId AND user_id = :userId`,
+        {
+          replacements: {
+            status,
+            enterpriseId: auth.currentEnterpriseId,
+            userId: id
+          },
+          type: QueryTypes.UPDATE
+        }
+      );
     }
     
     // 更新用户
@@ -197,12 +319,20 @@ router.put('/:id', async (req, res) => {
         role_id = COALESCE(:roleId, role_id),
         department = COALESCE(:department, department),
         position = COALESCE(:position, position),
-        status = COALESCE(:status, status),
         avatar = COALESCE(:avatar, avatar),
         updated_at = NOW()
       WHERE id = :id
     `, {
-      replacements: { id, realName, phone, email, roleId, department, position, status, avatar },
+      replacements: {
+        id,
+        realName,
+        phone,
+        email,
+        roleId: canManageOthers ? roleId : null,
+        department,
+        position,
+        avatar
+      },
       type: QueryTypes.UPDATE
     });
     
@@ -219,32 +349,31 @@ router.put('/:id', async (req, res) => {
  */
 router.delete('/:id', async (req, res) => {
   try {
+    const auth = await getRequestContext(req);
+    await assertEnterpriseAdmin(auth.user.id, auth.currentEnterpriseId);
+
     const { id } = req.params;
     
     // 检查用户是否存在
-    const users = await sequelize.query('SELECT * FROM users WHERE id = :id', {
-      replacements: { id },
-      type: QueryTypes.SELECT
-    });
-    
-    if (users.length === 0) {
-      return res.json({ success: false, message: '用户不存在' });
+    const user = await getEnterpriseUserById(auth.currentEnterpriseId, id);
+    if (!user) {
+      return res.json({ success: false, message: '用户不存在或不属于当前企业' });
     }
     
-    const user = users[0];
-    
     // 主账号不能删除
-    if (user.is_admin === 1) {
+    if (user.is_admin === 1 || user.is_owner) {
       return res.json({ success: false, message: '主账号不能删除' });
     }
     
-    // 删除用户
-    await sequelize.query('DELETE FROM users WHERE id = :id', {
-      replacements: { id },
-      type: QueryTypes.DELETE
-    });
+    await sequelize.query(
+      'DELETE FROM enterprise_members WHERE enterprise_id = :enterpriseId AND user_id = :userId',
+      {
+        replacements: { enterpriseId: auth.currentEnterpriseId, userId: id },
+        type: QueryTypes.DELETE
+      }
+    );
     
-    res.json({ success: true, message: '用户删除成功' });
+    res.json({ success: true, message: '用户移除成功' });
   } catch (error) {
     console.error('删除用户失败:', error);
     res.json({ success: false, message: '删除用户失败: ' + error.message });
@@ -257,6 +386,9 @@ router.delete('/:id', async (req, res) => {
  */
 router.post('/:id/reset-password', async (req, res) => {
   try {
+    const auth = await getRequestContext(req);
+    await assertEnterpriseAdmin(auth.user.id, auth.currentEnterpriseId);
+
     const { id } = req.params;
     const { newPassword } = req.body;
     
@@ -265,13 +397,9 @@ router.post('/:id/reset-password', async (req, res) => {
     }
     
     // 检查用户是否存在
-    const users = await sequelize.query('SELECT * FROM users WHERE id = :id', {
-      replacements: { id },
-      type: QueryTypes.SELECT
-    });
-    
-    if (users.length === 0) {
-      return res.json({ success: false, message: '用户不存在' });
+    const user = await getEnterpriseUserById(auth.currentEnterpriseId, id);
+    if (!user) {
+      return res.json({ success: false, message: '用户不存在或不属于当前企业' });
     }
     
     // 更新密码
@@ -300,7 +428,15 @@ router.post('/:id/reset-password', async (req, res) => {
  */
 router.post('/:id/force-logout', async (req, res) => {
   try {
+    const auth = await getRequestContext(req);
+    await assertEnterpriseAdmin(auth.user.id, auth.currentEnterpriseId);
+
     const { id } = req.params;
+
+    const user = await getEnterpriseUserById(auth.currentEnterpriseId, id);
+    if (!user) {
+      return res.json({ success: false, message: '用户不存在或不属于当前企业' });
+    }
     
     // 增加token_version使所有Token失效
     await sequelize.query(`

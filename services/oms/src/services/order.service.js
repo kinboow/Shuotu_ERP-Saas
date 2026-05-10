@@ -2,9 +2,10 @@
  * 订单服务
  */
 
-const { Order, OrderItem, OrderLog, sequelize } = require('../models');
+const { Order, OrderItem, OrderLog, Shipment, sequelize } = require('../models');
 const { Op } = require('sequelize');
 const { v4: uuidv4 } = require('uuid');
+const { getCurrentEnterpriseId, normalizeEnterpriseId } = require('./tenant-context.service');
 
 // 订单状态流转规则
 const StatusTransitions = {
@@ -20,6 +21,16 @@ const StatusTransitions = {
 };
 
 class OrderService {
+  resolveEnterpriseId(enterpriseId = undefined) {
+    const explicitEnterpriseId = normalizeEnterpriseId(enterpriseId);
+    if (explicitEnterpriseId !== null) {
+      return explicitEnterpriseId;
+    }
+
+    const contextEnterpriseId = getCurrentEnterpriseId();
+    return contextEnterpriseId === null ? 0 : contextEnterpriseId;
+  }
+
   /**
    * 生成内部订单ID
    */
@@ -30,16 +41,24 @@ class OrderService {
     return `${prefix}${random}`;
   }
 
+  generateShipmentNo() {
+    const date = new Date();
+    const prefix = `SHP${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
+    return `${prefix}${uuidv4().replace(/-/g, '').substring(0, 10).toUpperCase()}`;
+  }
+
   /**
    * 创建订单（从同步引擎接收）
    */
-  async createOrder(unifiedOrder, source = 'SYNC') {
+  async createOrder(unifiedOrder, source = 'SYNC', enterpriseId = undefined) {
     const transaction = await sequelize.transaction();
+    const scopedEnterpriseId = this.resolveEnterpriseId(enterpriseId ?? unifiedOrder?.enterpriseId ?? unifiedOrder?.enterprise_id);
 
     try {
       // 检查是否已存在
       const existing = await Order.findOne({
         where: {
+          enterpriseId: scopedEnterpriseId,
           platform: unifiedOrder.platform,
           platformOrderId: unifiedOrder.platformOrderId
         },
@@ -56,6 +75,7 @@ class OrderService {
 
       // 创建订单
       const order = await Order.create({
+        enterpriseId: scopedEnterpriseId,
         internalOrderId,
         platform: unifiedOrder.platform,
         platformOrderId: unifiedOrder.platformOrderId,
@@ -95,6 +115,7 @@ class OrderService {
       // 创建订单明细
       if (unifiedOrder.items && unifiedOrder.items.length > 0) {
         const items = unifiedOrder.items.map(item => ({
+          enterpriseId: scopedEnterpriseId,
           orderId: order.id,
           internalOrderId,
           platformItemId: item.platformItemId,
@@ -116,6 +137,7 @@ class OrderService {
 
       // 记录日志
       await OrderLog.create({
+        enterpriseId: scopedEnterpriseId,
         orderId: order.id,
         internalOrderId,
         action: 'CREATE',
@@ -137,9 +159,10 @@ class OrderService {
    * 更新订单状态
    */
   async updateStatus(internalOrderId, newStatus, options = {}) {
-    const { operatorId, operatorName, source = 'USER', detail = {} } = options;
+    const { operatorId, operatorName, source = 'USER', detail = {}, enterpriseId } = options;
+    const scopedEnterpriseId = this.resolveEnterpriseId(enterpriseId);
 
-    const order = await Order.findOne({ where: { internalOrderId } });
+    const order = await Order.findOne({ where: { internalOrderId, enterpriseId: scopedEnterpriseId } });
     if (!order) {
       throw new Error('订单不存在');
     }
@@ -157,6 +180,7 @@ class OrderService {
 
     // 记录日志
     await OrderLog.create({
+      enterpriseId: scopedEnterpriseId,
       orderId: order.id,
       internalOrderId,
       action: 'STATUS_CHANGE',
@@ -175,7 +199,8 @@ class OrderService {
    * 订单发货
    */
   async shipOrder(internalOrderId, logistics, options = {}) {
-    const order = await Order.findOne({ where: { internalOrderId } });
+    const scopedEnterpriseId = this.resolveEnterpriseId(options.enterpriseId);
+    const order = await Order.findOne({ where: { internalOrderId, enterpriseId: scopedEnterpriseId } });
     if (!order) {
       throw new Error('订单不存在');
     }
@@ -187,21 +212,37 @@ class OrderService {
     const transaction = await sequelize.transaction();
 
     try {
+      const oldStatus = order.status;
+      const shipTime = new Date();
+
       // 更新订单
       await order.update({
         status: 'SHIPPED',
         logisticsCompany: logistics.company,
         logisticsCompanyCode: logistics.companyCode,
         trackingNo: logistics.trackingNo,
-        shipTime: new Date()
+        shipTime
+      }, { transaction });
+
+      await Shipment.create({
+        enterpriseId: scopedEnterpriseId,
+        shipmentNo: this.generateShipmentNo(),
+        orderId: order.id,
+        internalOrderId,
+        logisticsCompany: logistics.company,
+        logisticsCompanyCode: logistics.companyCode,
+        trackingNo: logistics.trackingNo,
+        status: 'SHIPPED',
+        shipTime
       }, { transaction });
 
       // 记录日志
       await OrderLog.create({
+        enterpriseId: scopedEnterpriseId,
         orderId: order.id,
         internalOrderId,
         action: 'SHIP',
-        fromStatus: order.status,
+        fromStatus: oldStatus,
         toStatus: 'SHIPPED',
         detail: logistics,
         operatorId: options.operatorId,
@@ -221,11 +262,13 @@ class OrderService {
   /**
    * 获取订单详情
    */
-  async getOrderDetail(internalOrderId) {
+  async getOrderDetail(internalOrderId, enterpriseId = undefined) {
+    const scopedEnterpriseId = this.resolveEnterpriseId(enterpriseId);
     const order = await Order.findOne({
-      where: { internalOrderId },
+      where: { internalOrderId, enterpriseId: scopedEnterpriseId },
       include: [
         { model: OrderItem, as: 'items' },
+        { model: Shipment, as: 'shipments' },
         { model: OrderLog, as: 'logs', limit: 20, order: [['created_at', 'DESC']] }
       ]
     });
@@ -240,7 +283,7 @@ class OrderService {
   /**
    * 查询订单列表
    */
-  async queryOrders(params = {}) {
+  async queryOrders(params = {}, enterpriseId = undefined) {
     const {
       platform,
       shopId,
@@ -252,7 +295,8 @@ class OrderService {
       pageSize = 20
     } = params;
 
-    const where = {};
+    const scopedEnterpriseId = this.resolveEnterpriseId(enterpriseId ?? params.enterpriseId ?? params.enterprise_id);
+    const where = { enterpriseId: scopedEnterpriseId };
 
     if (platform) where.platform = platform;
     if (shopId) where.shopId = shopId;
@@ -293,10 +337,11 @@ class OrderService {
   /**
    * 订单统计
    */
-  async getStatistics(params = {}) {
+  async getStatistics(params = {}, enterpriseId = undefined) {
     const { platform, shopId, startTime, endTime } = params;
 
-    const where = {};
+    const scopedEnterpriseId = this.resolveEnterpriseId(enterpriseId ?? params.enterpriseId ?? params.enterprise_id);
+    const where = { enterpriseId: scopedEnterpriseId };
     if (platform) where.platform = platform;
     if (shopId) where.shopId = shopId;
     if (startTime) where.orderTime = { [Op.gte]: new Date(startTime) };
@@ -332,7 +377,7 @@ class OrderService {
   /**
    * 批量更新订单（从同步引擎）
    */
-  async batchUpsert(orders, source = 'SYNC') {
+  async batchUpsert(orders, source = 'SYNC', enterpriseId = undefined) {
     const results = {
       created: 0,
       updated: 0,
@@ -340,16 +385,18 @@ class OrderService {
       errors: []
     };
 
+    const scopedEnterpriseId = this.resolveEnterpriseId(enterpriseId);
+
     for (const order of orders) {
       try {
-        const result = await this.createOrder(order, source);
+        const result = await this.createOrder(order, source, scopedEnterpriseId);
         if (result.created) {
           results.created++;
         } else {
           // 已存在，尝试更新状态
           if (order.status && result.order.status !== order.status) {
             try {
-              await this.updateStatus(result.order.internalOrderId, order.status, { source });
+              await this.updateStatus(result.order.internalOrderId, order.status, { source, enterpriseId: scopedEnterpriseId });
               results.updated++;
             } catch (e) {
               // 状态流转不合法，忽略

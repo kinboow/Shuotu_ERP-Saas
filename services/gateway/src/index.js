@@ -100,6 +100,16 @@ const proxy = (target, pathRewrite = {}) => createProxyMiddleware({
   target,
   changeOrigin: true,
   pathRewrite,
+  onProxyReq: (proxyReq, req) => {
+    if (req.user) {
+      proxyReq.setHeader('x-auth-user-id', req.user.userId || '');
+      proxyReq.setHeader('x-auth-username', req.user.username || '');
+      proxyReq.setHeader('x-auth-role-id', req.user.roleId || '');
+      proxyReq.setHeader('x-auth-role-code', req.user.roleCode || '');
+      proxyReq.setHeader('x-auth-is-admin', req.user.isAdmin ? '1' : '0');
+      proxyReq.setHeader('x-enterprise-id', req.user.enterpriseId || '');
+    }
+  },
   onError: (err, req, res) => {
     console.error(`[Gateway] 代理错误: ${target}`, err.message);
     res.status(502).json({ success: false, message: '服务暂时不可用' });

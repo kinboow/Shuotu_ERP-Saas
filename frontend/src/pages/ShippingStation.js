@@ -554,6 +554,245 @@ function ShippingStation() {
     }
   };
 
+  // ==================== 打印发货单 ====================
+  const generateShippingInvoicePDF = async () => {
+    if (!deliveryResult?.deliveryCode) {
+      message.warning('没有可打印的发货单');
+      return;
+    }
+
+    setShippingLoading(true);
+    try {
+      message.loading('正在生成发货单PDF...', 0);
+
+      const deliveryCode = deliveryResult.deliveryCode || '';
+      const expressCode = deliveryResult.expressCode || '';
+      const shopName = selectedOrders[0]?.shop_name || '-';
+      const shopId = selectedOrders[0]?.shop_id || '-';
+      const orderType = selectedOrders[0]?.order_type || '-';
+      const now = new Date();
+      const formatTime = (d) => {
+        const pad = n => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+      };
+      const submitTime = formatTime(now);
+
+      // 送货方式
+      const deliveryTypeName = shippingBasicInfo?.deliveryTypeList?.find(
+        d => d.deliveryTypeValue === shippingConfig.deliveryType
+      )?.deliveryTypeName || '-';
+
+      // 供应商仓库名
+      const supplierWarehouseName = shippingBasicInfo?.supplierWarehouseList?.find(
+        w => w.supplierWarehouseId === shippingConfig.supplierWarehouseId
+      )?.warehouseName || '-';
+
+      // 发货地址
+      const senderAddress = shippingBasicInfo?.addressList?.find(
+        a => a.addressId === shippingConfig.addressId
+      )?.addressName || '-';
+
+      // 收货仓信息
+      const receiverWarehouse = warehouseInfo?.subWarehouseName || '-';
+      const receiverAddress = warehouseInfo?.warehouseAddress || '-';
+      const receiverContact = `${warehouseInfo?.warehouseContact || ''} ${warehouseInfo?.warehousePhone || ''}`.trim() || '-';
+
+      const packageNumber = shippingConfig.packageNumber || 1;
+
+      // 生成条码图片
+      let barcodeDataUrl = '';
+      try {
+        const barcodeCanvas = document.createElement('canvas');
+        JsBarcode(barcodeCanvas, deliveryCode, {
+          format: 'CODE128',
+          width: 2,
+          height: 50,
+          displayValue: true,
+          fontSize: 14,
+          margin: 5
+        });
+        barcodeDataUrl = barcodeCanvas.toDataURL('image/png');
+      } catch (e) {
+        console.warn('生成条码失败:', e);
+      }
+
+      // 构建SKU表格数据
+      const tableBody = [
+        [
+          { text: '序号', style: 'tableHeader', alignment: 'center' },
+          { text: '订单号', style: 'tableHeader' },
+          { text: '平台SKC/商家货号', style: 'tableHeader' },
+          { text: '平台SKU', style: 'tableHeader' },
+          { text: '属性集', style: 'tableHeader' },
+          { text: '数量', style: 'tableHeader', alignment: 'center' }
+        ]
+      ];
+
+      const filteredItems = shippingItemList.filter(i => i.deliveryQuantity > 0);
+      filteredItems.forEach((item, idx) => {
+        const skcAndCode = [item.skc, item.supplierCode].filter(v => v && v !== '-').join('\n') || '-';
+        tableBody.push([
+          { text: String(idx + 1), alignment: 'center', fontSize: 9 },
+          { text: item.orderNo || '-', fontSize: 9 },
+          { text: skcAndCode, fontSize: 8 },
+          { text: item.skuCode || '-', fontSize: 8 },
+          { text: item.skuAttribute || '-', fontSize: 9 },
+          { text: String(item.deliveryQuantity), alignment: 'center', fontSize: 9 }
+        ]);
+      });
+
+      const totalQuantity = filteredItems.reduce((sum, i) => sum + (i.deliveryQuantity || 0), 0);
+
+      // 信息行辅助函数
+      const infoRow = (label1, value1, label2, value2) => ({
+        columns: [
+          { width: 'auto', text: label1, fontSize: 9, color: '#333', bold: true },
+          { width: '*', text: ' ' + (value1 || '-'), fontSize: 9, margin: [0, 0, 10, 0] },
+          ...(label2 ? [
+            { width: 'auto', text: label2, fontSize: 9, color: '#333', bold: true },
+            { width: '*', text: ' ' + (value2 || '-'), fontSize: 9 }
+          ] : [])
+        ],
+        margin: [0, 2, 0, 2]
+      });
+
+      const fullWidthInfoRow = (label, value) => ({
+        columns: [
+          { width: 'auto', text: label, fontSize: 9, color: '#333', bold: true },
+          { width: '*', text: ' ' + (value || '-'), fontSize: 9 }
+        ],
+        margin: [0, 2, 0, 2]
+      });
+
+      const docDefinition = {
+        pageSize: 'A4',
+        pageMargins: [30, 30, 30, 30],
+        defaultStyle: {
+          font: 'ChineseFont',
+          fontSize: 10
+        },
+        content: [
+          // 标题区域：条码 + 标题
+          {
+            columns: [
+              barcodeDataUrl ? {
+                image: barcodeDataUrl,
+                width: 200,
+                height: 50,
+                alignment: 'left'
+              } : { text: '' },
+              {
+                text: '发货单',
+                fontSize: 22,
+                bold: true,
+                alignment: 'right',
+                margin: [0, 10, 0, 0]
+              }
+            ],
+            margin: [0, 0, 0, 10]
+          },
+
+          // 基本信息
+          infoRow('发货单号：', deliveryCode, '商家名称：', shopName),
+          infoRow('商家ID：', String(shopId), '订单类型：', orderType),
+          infoRow('确认提交时间：', submitTime, '送货方式：', deliveryTypeName),
+          infoRow('送货时间：', submitTime, '快递单号：', expressCode || '-'),
+          infoRow('预计到SHEIN仓时间：', '-', '总包裹数：', String(packageNumber)),
+          infoRow('平台收货仓：', receiverWarehouse, '商家发货仓库：', supplierWarehouseName),
+          fullWidthInfoRow('收货联系人及电话：', receiverContact),
+          fullWidthInfoRow('商家发货地址：', senderAddress),
+          fullWidthInfoRow('平台收货地址：', receiverAddress),
+
+          { text: '', margin: [0, 8, 0, 0] },
+
+          // SKU明细表格
+          {
+            table: {
+              headerRows: 1,
+              widths: [30, 95, 130, '*', 60, 35],
+              body: tableBody
+            },
+            layout: {
+              hLineWidth: () => 0.5,
+              vLineWidth: () => 0.5,
+              hLineColor: () => '#999',
+              vLineColor: () => '#999',
+              paddingLeft: () => 4,
+              paddingRight: () => 4,
+              paddingTop: () => 3,
+              paddingBottom: () => 3
+            }
+          },
+
+          // 总计
+          {
+            text: `总包裹数：${packageNumber}`,
+            fontSize: 9,
+            alignment: 'right',
+            margin: [0, 6, 0, 0]
+          },
+
+          // 签名区域
+          {
+            margin: [0, 40, 0, 0],
+            columns: [
+              { text: '' },
+              {
+                width: 'auto',
+                stack: [
+                  { text: `商家签字：${shopName}`, fontSize: 11, margin: [0, 0, 0, 16] },
+                  { text: '收件人签字：_______________', fontSize: 11 }
+                ],
+                alignment: 'right'
+              }
+            ]
+          }
+        ],
+        styles: {
+          tableHeader: {
+            bold: true,
+            fontSize: 9,
+            color: '#333',
+            fillColor: '#f5f5f5'
+          }
+        }
+      };
+
+      const pdfDocGenerator = pdfMake.createPdf(docDefinition);
+
+      const pdfBlob = await new Promise((resolve, reject) => {
+        pdfDocGenerator.getBlob((blob) => {
+          if (blob) resolve(blob);
+          else reject(new Error('PDF生成失败'));
+        });
+      });
+
+      message.destroy();
+      message.loading('正在上传到OSS...', 0);
+
+      const fileName = `发货单_${deliveryCode}_${Date.now()}.pdf`;
+      const result = await uploadPdfToOSS(pdfBlob, fileName);
+
+      message.destroy();
+      if (result.success) {
+        window.open(result.url, '_blank');
+        if (result.isOss) {
+          message.success(`发货单已生成，链接有效期至 ${result.expiresAt?.replace('T', ' ').slice(0, 19) || '2小时'}`);
+        } else {
+          message.success('发货单已生成（本地预览模式）');
+        }
+      } else {
+        message.error('发货单PDF上传失败');
+      }
+    } catch (error) {
+      message.destroy();
+      message.error('生成发货单失败: ' + error.message);
+      console.error('生成发货单失败:', error);
+    } finally {
+      setShippingLoading(false);
+    }
+  };
+
   const fetchFullOrders = async () => {
     const orderNumbers = selectedOrders.map(o => o.order_number);
     const response = await fetch(`/api/stock-orders?order_number=${orderNumbers.join(',')}&platform=shein`);

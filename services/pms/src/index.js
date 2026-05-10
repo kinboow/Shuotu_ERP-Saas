@@ -8,6 +8,7 @@ const express = require('express');
 const cors = require('cors');
 
 const { syncDatabase } = require('./models');
+const { ensureTenantColumns, runWithRequestContext } = require('./services/tenant-context.service');
 const productsRouter = require('./routes/products');
 
 const app = express();
@@ -15,6 +16,7 @@ const PORT = process.env.PORT || 5004;
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
+app.use((req, res, next) => runWithRequestContext(req, next));
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'pms', timestamp: new Date().toISOString() });
@@ -31,6 +33,7 @@ app.use((err, req, res, next) => {
 
 const start = async () => {
   await syncDatabase();
+  await ensureTenantColumns();
   app.listen(PORT, () => {
     console.log(`========================================`);
     console.log(`  商品服务(PMS)已启动`);

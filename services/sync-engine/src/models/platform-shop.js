@@ -11,6 +11,12 @@ module.exports = (sequelize) => {
       primaryKey: true,
       autoIncrement: true
     },
+    enterpriseId: {
+      type: DataTypes.BIGINT,
+      allowNull: false,
+      defaultValue: 0,
+      field: 'enterprise_id'
+    },
     platformId: {
       type: DataTypes.INTEGER,
       allowNull: false,
@@ -77,6 +83,7 @@ module.exports = (sequelize) => {
     const values = Object.assign({}, this.get());
     return {
       id: values.id,
+      enterprise_id: values.enterpriseId,
       platform_id: values.platformId,
       shop_name: values.shopName,
       open_key_id: values.openKeyId,

@@ -7,6 +7,11 @@ const { sequelize } = require('../models');
 const { QueryTypes } = require('sequelize');
 const authService = require('../services/auth');
 const redisService = require('../services/redis');
+const {
+  ensureTenantTables,
+  getUserEnterpriseContext,
+  listUserJoinRequests
+} = require('../services/enterprise-context');
 
 /**
  * 用户注册
@@ -14,7 +19,13 @@ const redisService = require('../services/redis');
  */
 router.post('/register', async (req, res) => {
   try {
-    const { phone, password, username } = req.body;
+    await ensureTenantTables();
+
+    const {
+      phone,
+      password,
+      username
+    } = req.body;
 
     if (!phone || !password) {
       return res.json({ success: false, message: '手机号和密码不能为空' });
@@ -46,10 +57,10 @@ router.post('/register', async (req, res) => {
 
     await sequelize.query(
       `INSERT INTO users (
-        user_id, username, password, phone, role, status,
+        user_id, username, password, phone, real_name, role, status,
         login_count, token_version, created_at, updated_at
       ) VALUES (
-        :userId, :username, :password, :phone, :role, :status,
+        :userId, :username, :password, :phone, :realName, :role, :status,
         0, 0, NOW(), NOW()
       )`,
       {
@@ -58,6 +69,7 @@ router.post('/register', async (req, res) => {
           username: username || phone,
           password: hashedPassword,
           phone,
+          realName: null,
           role: 'user',
           status: 'ACTIVE'
         },
@@ -67,7 +79,7 @@ router.post('/register', async (req, res) => {
 
     return res.json({
       success: true,
-      message: '注册成功，请登录',
+      message: '注册成功，请登录后完成账户初始化',
       data: {
         userId,
         username: username || phone,
@@ -87,7 +99,7 @@ router.post('/register', async (req, res) => {
  */
 router.post('/login', async (req, res) => {
   const startTime = Date.now();
-  const { username, phone, password, deviceType = 'web' } = req.body;
+  const { username, phone, password, deviceType = 'web', enterpriseId } = req.body;
   const ipAddress = req.ip || req.connection.remoteAddress;
   const userAgent = req.headers['user-agent'];
   
@@ -140,10 +152,13 @@ router.post('/login', async (req, res) => {
     
     // 清除登录失败次数
     await redisService.clearLoginAttempts(loginAccount);
+
+    const enterpriseContext = await getUserEnterpriseContext(user.id, enterpriseId);
+    const pendingJoinRequests = await listUserJoinRequests(user.id, 'PENDING');
     
     // 生成Token
-    const accessToken = authService.generateAccessToken(user);
-    const refreshToken = authService.generateRefreshToken(user);
+    const accessToken = authService.generateAccessToken(user, enterpriseContext);
+    const refreshToken = authService.generateRefreshToken(user, enterpriseContext);
     
     // 存储会话信息到Redis
     const sessionData = {
@@ -153,6 +168,8 @@ router.post('/login', async (req, res) => {
       roleCode: user.role_code,
       roleName: user.role_name,
       isAdmin: user.is_admin,
+      currentEnterpriseId: enterpriseContext.currentEnterpriseId,
+      enterpriseIds: enterpriseContext.enterprises.map((item) => item.id),
       deviceType,
       ipAddress,
       loginTime: new Date().toISOString()
@@ -214,7 +231,11 @@ router.post('/login', async (req, res) => {
           department: user.department,
           position: user.position
         },
-        permissions
+        permissions,
+        enterprises: enterpriseContext.enterprises,
+        currentEnterprise: enterpriseContext.currentEnterprise,
+        pendingJoinRequests,
+        requiresEnterpriseSelection: !enterpriseContext.hasEnterprises
       }
     });
   } catch (error) {
@@ -258,7 +279,7 @@ router.post('/logout', async (req, res) => {
  */
 router.post('/refresh', async (req, res) => {
   try {
-    const { refreshToken } = req.body;
+    const { refreshToken, enterpriseId } = req.body;
     
     if (!refreshToken) {
       return res.json({ success: false, message: '刷新Token不能为空' });
@@ -293,19 +314,36 @@ router.post('/refresh', async (req, res) => {
       return res.json({ success: false, message: '登录已失效，请重新登录', code: 'TOKEN_REVOKED' });
     }
     
+    const enterpriseContext = await getUserEnterpriseContext(user.id, enterpriseId || decoded.enterpriseId);
+    const pendingJoinRequests = await listUserJoinRequests(user.id, 'PENDING');
+
     // 生成新Token
-    const newAccessToken = authService.generateAccessToken(user);
-    const newRefreshToken = authService.generateRefreshToken(user);
+    const newAccessToken = authService.generateAccessToken(user, enterpriseContext);
+    const newRefreshToken = authService.generateRefreshToken(user, enterpriseContext);
     
     // 刷新Redis会话
-    await redisService.refreshSession(user.id);
+    await redisService.setUserSession(user.id, {
+      userId: user.id,
+      username: user.username,
+      roleId: user.role_id,
+      roleCode: user.role_code,
+      roleName: user.role_name,
+      isAdmin: user.is_admin,
+      currentEnterpriseId: enterpriseContext.currentEnterpriseId,
+      enterpriseIds: enterpriseContext.enterprises.map((item) => item.id),
+      loginTime: new Date().toISOString()
+    });
     
     res.json({
       success: true,
       data: {
         accessToken: newAccessToken,
         refreshToken: newRefreshToken,
-        expiresIn: redisService.TOKEN_EXPIRE
+        expiresIn: redisService.TOKEN_EXPIRE,
+        enterprises: enterpriseContext.enterprises,
+        currentEnterprise: enterpriseContext.currentEnterprise,
+        pendingJoinRequests,
+        requiresEnterpriseSelection: !enterpriseContext.hasEnterprises
       }
     });
   } catch (error) {
@@ -348,6 +386,8 @@ router.get('/me', async (req, res) => {
     
     const user = users[0];
     const permissions = await getUserPermissions(user.role_id);
+    const enterpriseContext = await getUserEnterpriseContext(user.id, decoded.enterpriseId);
+    const pendingJoinRequests = await listUserJoinRequests(user.id, 'PENDING');
     
     res.json({
       success: true,
@@ -369,12 +409,168 @@ router.get('/me', async (req, res) => {
           lastLoginAt: user.last_login_at,
           loginIp: user.login_ip
         },
-        permissions
+        permissions,
+        enterprises: enterpriseContext.enterprises,
+        currentEnterprise: enterpriseContext.currentEnterprise,
+        pendingJoinRequests,
+        requiresEnterpriseSelection: !enterpriseContext.hasEnterprises
       }
     });
   } catch (error) {
     console.error('获取用户信息失败:', error);
     res.json({ success: false, message: '获取用户信息失败' });
+  }
+});
+
+/**
+ * 更新当前用户资料
+ * PUT /api/auth/profile
+ */
+router.put('/profile', async (req, res) => {
+  try {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (!token) {
+      return res.json({ success: false, message: '未登录', code: 'UNAUTHORIZED' });
+    }
+
+    const { valid, decoded, error } = await authService.verifyAccessToken(token);
+    if (!valid) {
+      return res.json({ success: false, message: error, code: 'TOKEN_INVALID' });
+    }
+
+    const { realName } = req.body;
+
+    await sequelize.query(
+      `UPDATE users
+       SET real_name = :realName,
+           updated_at = NOW()
+       WHERE id = :userId`,
+      {
+        replacements: {
+          userId: decoded.userId,
+          realName: realName && String(realName).trim() ? String(realName).trim() : null
+        },
+        type: QueryTypes.UPDATE
+      }
+    );
+
+    const users = await sequelize.query(
+      `SELECT id, user_id, username, real_name, avatar, email, phone, role_id, is_admin, department, position, last_login_at, login_ip
+       FROM users
+       WHERE id = :userId
+       LIMIT 1`,
+      {
+        replacements: { userId: decoded.userId },
+        type: QueryTypes.SELECT
+      }
+    );
+
+    if (!users.length) {
+      return res.json({ success: false, message: '用户不存在' });
+    }
+
+    const user = users[0];
+    return res.json({
+      success: true,
+      message: '资料更新成功',
+      data: {
+        user: {
+          id: user.id,
+          userId: user.user_id,
+          username: user.username,
+          realName: user.real_name,
+          avatar: user.avatar,
+          email: user.email,
+          phone: user.phone,
+          roleId: user.role_id,
+          isAdmin: user.is_admin,
+          department: user.department,
+          position: user.position,
+          lastLoginAt: user.last_login_at,
+          loginIp: user.login_ip
+        }
+      }
+    });
+  } catch (error) {
+    console.error('更新当前用户资料失败:', error);
+    return res.json({ success: false, message: '更新当前用户资料失败: ' + error.message });
+  }
+});
+
+/**
+ * 切换当前企业
+ * POST /api/auth/select-enterprise
+ */
+router.post('/select-enterprise', async (req, res) => {
+  try {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (!token) {
+      return res.json({ success: false, message: '未登录', code: 'UNAUTHORIZED' });
+    }
+
+    const { enterpriseId } = req.body;
+    if (!enterpriseId) {
+      return res.json({ success: false, message: 'enterpriseId 不能为空' });
+    }
+
+    const { valid, decoded, error } = await authService.verifyAccessToken(token);
+    if (!valid) {
+      return res.json({ success: false, message: error, code: 'TOKEN_INVALID' });
+    }
+
+    const users = await sequelize.query(
+      `SELECT u.*, r.role_code, r.role_name
+       FROM users u
+       LEFT JOIN roles r ON u.role_id = r.id
+       WHERE u.id = :userId AND u.status = 'ACTIVE'`,
+      {
+        replacements: { userId: decoded.userId },
+        type: QueryTypes.SELECT
+      }
+    );
+
+    if (users.length === 0) {
+      return res.json({ success: false, message: '用户不存在或已禁用' });
+    }
+
+    const user = users[0];
+    const enterpriseContext = await getUserEnterpriseContext(user.id, enterpriseId);
+    if (!enterpriseContext.currentEnterprise || enterpriseContext.currentEnterprise.id !== Number(enterpriseId)) {
+      return res.json({ success: false, message: '当前用户无权访问该企业' });
+    }
+
+    const pendingJoinRequests = await listUserJoinRequests(user.id, 'PENDING');
+    const accessToken = authService.generateAccessToken(user, enterpriseContext);
+    const refreshToken = authService.generateRefreshToken(user, enterpriseContext);
+
+    await redisService.setUserSession(user.id, {
+      userId: user.id,
+      username: user.username,
+      roleId: user.role_id,
+      roleCode: user.role_code,
+      roleName: user.role_name,
+      isAdmin: user.is_admin,
+      currentEnterpriseId: enterpriseContext.currentEnterpriseId,
+      enterpriseIds: enterpriseContext.enterprises.map((item) => item.id),
+      loginTime: new Date().toISOString()
+    });
+
+    return res.json({
+      success: true,
+      message: '切换企业成功',
+      data: {
+        accessToken,
+        refreshToken,
+        expiresIn: redisService.TOKEN_EXPIRE,
+        enterprises: enterpriseContext.enterprises,
+        currentEnterprise: enterpriseContext.currentEnterprise,
+        pendingJoinRequests,
+        requiresEnterpriseSelection: !enterpriseContext.hasEnterprises
+      }
+    });
+  } catch (error) {
+    console.error('切换企业失败:', error);
+    return res.json({ success: false, message: '切换企业失败: ' + error.message });
   }
 });
 

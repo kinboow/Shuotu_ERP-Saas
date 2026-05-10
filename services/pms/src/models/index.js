@@ -28,16 +28,19 @@ Sku.belongsTo(Product, { foreignKey: 'productId', targetKey: 'productId', as: 'p
 Sku.hasMany(SkuMapping, { foreignKey: 'internalSkuId', sourceKey: 'skuId', as: 'mappings' });
 SkuMapping.belongsTo(Sku, { foreignKey: 'internalSkuId', targetKey: 'skuId', as: 'sku' });
 
+const shouldAutoSync = process.env.DB_AUTO_SYNC === 'true' || process.env.NODE_ENV === 'development';
+
 const syncDatabase = async () => {
   try {
     await sequelize.authenticate();
     console.log('[PMS] 数据库连接成功');
-    if (process.env.NODE_ENV === 'development') {
+    if (shouldAutoSync) {
       await sequelize.sync({ alter: true });
       console.log('[PMS] 数据表同步完成');
     }
   } catch (error) {
     console.error('[PMS] 数据库连接失败:', error.message);
+    throw error;
   }
 };
 

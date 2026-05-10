@@ -6,12 +6,15 @@ const express = require('express');
 const router = express.Router();
 const { Supplier } = require('../models');
 const { Op } = require('sequelize');
+const { ensureBusinessTenantColumns, getRequiredEnterpriseIdFromRequest } = require('../services/enterprise-context');
 
 // 查询列表
 router.get('/', async (req, res) => {
   try {
+    await ensureBusinessTenantColumns();
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { status, keyword, page = 1, pageSize = 20 } = req.query;
-    const where = {};
+    const where = { enterpriseId };
     if (status) where.status = parseInt(status);
     if (keyword) {
       where[Op.or] = [
@@ -38,7 +41,9 @@ router.get('/', async (req, res) => {
 // 获取详情
 router.get('/:id', async (req, res) => {
   try {
-    const supplier = await Supplier.findByPk(req.params.id);
+    await ensureBusinessTenantColumns();
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
+    const supplier = await Supplier.findOne({ where: { id: req.params.id, enterpriseId } });
     if (!supplier) return res.status(404).json({ success: false, message: '供应商不存在' });
     res.json({ success: true, data: supplier });
   } catch (error) {
@@ -49,7 +54,12 @@ router.get('/:id', async (req, res) => {
 // 创建
 router.post('/', async (req, res) => {
   try {
-    const supplier = await Supplier.create(req.body);
+    await ensureBusinessTenantColumns();
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
+    const supplier = await Supplier.create({
+      ...req.body,
+      enterpriseId
+    });
     res.json({ success: true, data: supplier });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -59,9 +69,14 @@ router.post('/', async (req, res) => {
 // 更新
 router.put('/:id', async (req, res) => {
   try {
-    const supplier = await Supplier.findByPk(req.params.id);
+    await ensureBusinessTenantColumns();
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
+    const supplier = await Supplier.findOne({ where: { id: req.params.id, enterpriseId } });
     if (!supplier) return res.status(404).json({ success: false, message: '供应商不存在' });
-    await supplier.update(req.body);
+    const payload = { ...req.body };
+    delete payload.enterpriseId;
+    delete payload.enterprise_id;
+    await supplier.update(payload);
     res.json({ success: true, data: supplier });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -71,7 +86,9 @@ router.put('/:id', async (req, res) => {
 // 删除
 router.delete('/:id', async (req, res) => {
   try {
-    const supplier = await Supplier.findByPk(req.params.id);
+    await ensureBusinessTenantColumns();
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
+    const supplier = await Supplier.findOne({ where: { id: req.params.id, enterpriseId } });
     if (!supplier) return res.status(404).json({ success: false, message: '供应商不存在' });
     await supplier.destroy();
     res.json({ success: true, message: '删除成功' });
@@ -83,7 +100,9 @@ router.delete('/:id', async (req, res) => {
 // 切换状态
 router.post('/:id/toggle-status', async (req, res) => {
   try {
-    const supplier = await Supplier.findByPk(req.params.id);
+    await ensureBusinessTenantColumns();
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
+    const supplier = await Supplier.findOne({ where: { id: req.params.id, enterpriseId } });
     if (!supplier) return res.status(404).json({ success: false, message: '供应商不存在' });
     const newStatus = supplier.status === 1 ? 2 : 1;
     await supplier.update({ status: newStatus });

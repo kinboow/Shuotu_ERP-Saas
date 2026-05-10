@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import { authAPI } from '../api';
+import { saveAuthSession } from '../utils/authStorage';
 import './Login.css';
 
 function Login() {
@@ -8,7 +9,7 @@ function Login() {
   const [authMode, setAuthMode] = useState('login'); // 'login' or 'register'
   const [loginType, setLoginType] = useState('password'); // 'password' or 'code'
   const [formData, setFormData] = useState({
-    phone: '',
+    loginAccount: '',
     password: '',
     code: ''
   });
@@ -59,11 +60,12 @@ function Login() {
     setError('');
   };
 
-  const getApiBaseUrl = () => {
-    if (process.env.REACT_APP_API_URL) {
-      return process.env.REACT_APP_API_URL;
-    }
-    return '/api';
+  const showTimedMessage = (type, text) => {
+    const messageId = Date.now();
+    setMessages(prev => ([...prev, { id: messageId, type, text }]));
+    setTimeout(() => {
+      setMessages(prev => prev.filter(msg => msg.id !== messageId));
+    }, 4000);
   };
 
   const handleForgotPassword = (e) => {
@@ -128,22 +130,32 @@ function Login() {
     try {
       setLoading(true);
 
-      const apiUrl = getApiBaseUrl();
-      const registerRes = await axios.post(`${apiUrl}/auth/register`, {
+      const registerRes = await authAPI.register({
         phone: registerData.phone,
         password: registerData.password,
         username: registerData.username || registerData.phone
       });
 
       if (registerRes.data.success) {
-        const messageId = Date.now();
-        setMessages(prev => ([...prev, { id: messageId, type: 'info', text: '注册成功，请点击登录' }]));
-        setAuthMode('login');
-        setFormData(prev => ({ ...prev, phone: registerData.phone, password: '' }));
-        setRegisterData({ phone: '', password: '', confirmPassword: '', username: '' });
-        setTimeout(() => {
-          setMessages(prev => prev.filter(msg => msg.id !== messageId));
-        }, 3000);
+        const loginRes = await authAPI.login({
+          phone: registerData.phone,
+          password: registerData.password,
+          deviceType: 'web'
+        });
+
+        if (!loginRes.data.success) {
+          setError(loginRes.data.message || '注册成功，但自动登录失败，请手动登录');
+          return;
+        }
+
+        saveAuthSession(loginRes.data.data);
+        showTimedMessage('success', registerRes.data.message || '注册成功，正在进入账户初始化');
+
+        if (loginRes.data.data.requiresEnterpriseSelection) {
+          navigate('/enterprise-onboarding', { replace: true });
+        } else {
+          navigate('/', { replace: true });
+        }
       } else {
         setError(registerRes.data.message || '注册失败');
       }
@@ -163,36 +175,31 @@ function Login() {
     setError('');
 
     // 验证输入
-    if (!formData.phone || !formData.password) {
-      setError('请输入手机号和密码');
-      return;
-    }
-
-    // 验证手机号格式
-    const phoneRegex = /^1[3-9]\d{9}$/;
-    if (!phoneRegex.test(formData.phone)) {
-      setError('手机号格式不正确');
+    if (!formData.loginAccount || !formData.password) {
+      setError('请输入账号和密码');
       return;
     }
 
     try {
       setLoading(true);
 
-      const apiUrl = getApiBaseUrl();
-
-      // 发送登录请求
-      const response = await axios.post(`${apiUrl}/auth/login`, {
-        phone: formData.phone,
+      const response = await authAPI.login({
+        phone: formData.loginAccount,
         password: formData.password,
         deviceType: 'web'
       });
 
       if (response.data.success) {
-        // 保存token和用户信息
-        localStorage.setItem('token', response.data.data.accessToken);
-        localStorage.setItem('refreshToken', response.data.data.refreshToken);
-        localStorage.setItem('user', JSON.stringify(response.data.data.user));
-        localStorage.setItem('permissions', JSON.stringify(response.data.data.permissions || []));
+        saveAuthSession(response.data.data);
+
+        if (response.data.data.pendingJoinRequests?.length) {
+          showTimedMessage('info', '你有待审批的企业加入申请，审批通过后即可切换到对应企业');
+        }
+
+        if (response.data.data.requiresEnterpriseSelection) {
+          navigate('/enterprise-onboarding', { replace: true });
+          return;
+        }
 
         // 跳转到首页
         navigate('/');
@@ -286,10 +293,10 @@ function Login() {
             <div className="form-group">
               <input
                 type="text"
-                name="phone"
-                value={formData.phone}
+                name="loginAccount"
+                value={formData.loginAccount}
                 onChange={handleChange}
-                placeholder="手机号"
+                placeholder="手机号或用户名"
                 disabled={loading}
                 className="form-input"
               />

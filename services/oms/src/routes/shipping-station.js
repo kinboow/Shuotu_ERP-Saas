@@ -1,10 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const { sequelize } = require('../models');
+const { getRequiredEnterpriseIdFromRequest } = require('../services/tenant-context.service');
 
 // 获取发货台订单列表
 router.get('/', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { order_number, platform, shop_id } = req.query;
 
     let query = `
@@ -23,7 +25,7 @@ router.get('/', async (req, res) => {
       FROM shipping_station ss
       LEFT JOIN shein_full_purchase_orders po ON ss.order_id = po.id
       LEFT JOIN shein_full_shops s ON po.shop_id = s.id
-      WHERE 1=1
+      WHERE ss.enterprise_id = :enterpriseId
     `;
 
     const params = [];
@@ -44,7 +46,7 @@ router.get('/', async (req, res) => {
     query += ` ORDER BY ss.added_at DESC`;
 
     const rows = await sequelize.query(query, {
-      replacements: { order_number: `%${order_number || ''}%`, platform, shop_id },
+      replacements: { enterpriseId, order_number: `%${order_number || ''}%`, platform, shop_id },
       type: sequelize.QueryTypes.SELECT
     });
 
@@ -94,6 +96,7 @@ router.get('/', async (req, res) => {
 // 添加订单到发货台
 router.post('/add', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { orderIds } = req.body;
 
     if (!orderIds || !Array.isArray(orderIds) || orderIds.length === 0) {
@@ -105,9 +108,9 @@ router.post('/add', async (req, res) => {
 
     // 检查订单是否已存在于发货台
     const existing = await sequelize.query(
-      `SELECT order_id FROM shipping_station WHERE order_id IN (:orderIds)`,
+      `SELECT order_id FROM shipping_station WHERE enterprise_id = :enterpriseId AND order_id IN (:orderIds)`,
       {
-        replacements: { orderIds },
+        replacements: { enterpriseId, orderIds },
         type: sequelize.QueryTypes.SELECT
       }
     );
@@ -125,9 +128,9 @@ router.post('/add', async (req, res) => {
 
     // 校验订单状态：只有 status=2（已下单/待发货）的订单可以加入发货台
     const orderStatusRows = await sequelize.query(
-      `SELECT id, order_no, status, status_name FROM shein_full_purchase_orders WHERE id IN (:newOrderIds)`,
+      `SELECT id, order_no, status, status_name FROM shein_full_purchase_orders WHERE enterprise_id = :enterpriseId AND id IN (:newOrderIds)`,
       {
-        replacements: { newOrderIds },
+        replacements: { enterpriseId, newOrderIds },
         type: sequelize.QueryTypes.SELECT
       }
     );
@@ -157,9 +160,9 @@ router.post('/add', async (req, res) => {
     }
 
     // 批量插入符合条件的订单
-    const values = eligibleIds.map(orderId => `(${orderId}, NOW())`).join(',');
+    const values = eligibleIds.map(orderId => `(${enterpriseId}, ${orderId}, NOW())`).join(',');
     await sequelize.query(
-      `INSERT INTO shipping_station (order_id, added_at) VALUES ${values}`
+      `INSERT INTO shipping_station (enterprise_id, order_id, added_at) VALUES ${values}`
     );
 
     let msg = `成功添加 ${eligibleIds.length} 个订单到发货台`;
@@ -190,6 +193,7 @@ router.post('/add', async (req, res) => {
 // 从发货台移除订单
 router.post('/remove', async (req, res) => {
   try {
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { orderIds } = req.body;
 
     if (!orderIds || !Array.isArray(orderIds) || orderIds.length === 0) {
@@ -200,9 +204,9 @@ router.post('/remove', async (req, res) => {
     }
 
     await sequelize.query(
-      `DELETE FROM shipping_station WHERE id IN (?)`,
+      `DELETE FROM shipping_station WHERE enterprise_id = ? AND order_id IN (?)`,
       {
-        replacements: [orderIds]
+        replacements: [enterpriseId, orderIds]
       }
     );
 
@@ -222,7 +226,10 @@ router.post('/remove', async (req, res) => {
 // 清空发货台
 router.post('/clear', async (req, res) => {
   try {
-    await sequelize.query(`DELETE FROM shipping_station`);
+    const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
+    await sequelize.query(`DELETE FROM shipping_station WHERE enterprise_id = ?`, {
+      replacements: [enterpriseId]
+    });
 
     res.json({
       success: true,

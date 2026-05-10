@@ -21,9 +21,21 @@ output/
 *.swo
 .DS_Store
 
-
 # 日志、缓存
 logs/
 *.log
 tmp/
 temp/
+/erp.sql
+/erp-*.sql
+/*.sql.gz
+
+# 生产环境配置
+docker/.env.production
+docker/.env.production.local
+docker/.env.baota
+docker/.env.baota.local
+docker/.env.ghcr
+docker/.env.ghcr.local
+.env.production
+.env.production.local

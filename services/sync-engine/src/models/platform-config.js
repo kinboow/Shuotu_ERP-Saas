@@ -11,10 +11,15 @@ module.exports = (sequelize) => {
       primaryKey: true,
       autoIncrement: true
     },
+    enterpriseId: {
+      type: DataTypes.BIGINT,
+      allowNull: false,
+      defaultValue: 0,
+      field: 'enterprise_id'
+    },
     platformName: {
       type: DataTypes.STRING(50),
       allowNull: false,
-      unique: true,
       field: 'platform_name'
       // shein, temu, tiktok
     },
@@ -67,6 +72,7 @@ module.exports = (sequelize) => {
     const values = Object.assign({}, this.get());
     return {
       id: values.id,
+      enterprise_id: values.enterpriseId,
       platform_name: values.platformName,
       platform_display_name: values.platformDisplayName,
       base_url: values.baseUrl,

@@ -162,16 +162,19 @@ const adapterManager = new AdapterManager();
 async function initAdaptersFromDatabase() {
   try {
     const PlatformConfigService = require('../services/platform-config.service');
-    const platforms = await PlatformConfigService.getAllPlatforms();
+    const platforms = await PlatformConfigService.getAllPlatformsForBootstrap();
     
     for (const platform of platforms) {
       const shops = platform.shops || [];
+      const platformName = platform.platformName || platform.platform_name;
       for (const shop of shops) {
         try {
-          const config = await PlatformConfigService.getAdapterConfig(platform.platformName, shop.id);
-          adapterManager.register(String(shop.id), platform.platformName, config);
+          const enterpriseId = shop.enterpriseId || shop.enterprise_id || platform.enterpriseId || platform.enterprise_id || null;
+          const shopName = shop.shopName || shop.shop_name;
+          const config = await PlatformConfigService.getAdapterConfig(platformName, shop.id, enterpriseId);
+          adapterManager.register(String(shop.id), platformName, config);
         } catch (err) {
-          console.error(`[AdapterManager] 初始化店铺适配器失败: ${shop.shopName}`, err.message);
+          console.error(`[AdapterManager] 初始化店铺适配器失败: ${shopName}`, err.message);
         }
       }
     }

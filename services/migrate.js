@@ -1,5 +1,11 @@
 const path = require('path');
-require('dotenv').config({ path: path.resolve(__dirname, '.env') });
+try {
+  require('dotenv').config({ path: path.resolve(__dirname, '.env') });
+} catch (error) {
+  if (error.code !== 'MODULE_NOT_FOUND') {
+    throw error;
+  }
+}
 
 process.env.DB_AUTO_SYNC = process.env.DB_AUTO_SYNC || 'true';
 

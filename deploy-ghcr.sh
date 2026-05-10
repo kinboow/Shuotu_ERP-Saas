@@ -10,6 +10,7 @@ GHCR_USERNAME="${GHCR_USERNAME:-}"
 GHCR_TOKEN="${GHCR_TOKEN:-}"
 SKIP_GHCR_LOGIN="${SKIP_GHCR_LOGIN:-0}"
 SKIP_IMAGE_PULL="${SKIP_IMAGE_PULL:-0}"
+DEPLOY_SCRIPT_VERSION="2026-05-10-mysql-runtime-password-fix"
 
 if [[ ! -f "$ENV_FILE" ]]; then
   echo "[错误] 缺少环境变量文件: $ENV_FILE"
@@ -201,6 +202,7 @@ pull_business_images() {
 
 echo "========================================"
 echo "  Shuotu ERP GHCR 镜像部署开始"
+echo "  Deploy Script Version: $DEPLOY_SCRIPT_VERSION"
 echo "========================================"
 docker_login_with_retry
 

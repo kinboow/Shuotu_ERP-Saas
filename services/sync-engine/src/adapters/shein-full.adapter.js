@@ -106,6 +106,21 @@ class SheinFullAdapter extends BaseAdapter {
     return map[lang] || 'CN';
   }
 
+  _sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  _isRetryableBarcodePrintError(error) {
+    const errorCode = String(error.code || '');
+    const errorMessage = String(error.message || '');
+
+    return (
+      (errorCode === '-1' && errorMessage.includes('打印条码失败')) ||
+      ['ECONNABORTED', 'ETIMEDOUT', 'ECONNRESET', 'ERR_NETWORK'].includes(errorCode) ||
+      (typeof error.status === 'number' && error.status >= 500)
+    );
+  }
+
   // ==================== HTTP请求 ====================
 
   async request(method, path, data = {}, options = {}) {
@@ -132,6 +147,8 @@ class SheinFullAdapter extends BaseAdapter {
         const error = new Error(`SHEIN API错误: [${response.data.code}] ${response.data.msg || response.data.message}`);
         error.code = response.data.code;
         error.traceId = response.data.traceId;
+        error.data = response.data;
+        error.info = response.data.info;
         throw error;
       }
 
@@ -938,17 +955,72 @@ class SheinFullAdapter extends BaseAdapter {
       type,
       data: data.map(item => ({
         orderNo: item.orderNo || null,
-        supplierSku: item.supplierSku || null,
         ...(item.barcode ? { barcode: item.barcode } : {}),
-        sheinSku: item.sheinSku,
+        ...(item.sheinSku ? { sheinSku: item.sheinSku } : {}),
+        ...(!item.sheinSku && item.supplierSku ? { supplierSku: item.supplierSku } : {}),
         printNumber: item.printNumber || 1,
         ...(item.printContentType ? { printContentType: item.printContentType } : {}),
         ...(printFormatType !== 1 ? { printFormatType } : {})
       }))
     };
 
-    const result = await this.request('POST', apiPath, requestBody, {
-      useXltLanguage: true
+    console.log('[barcode-print][adapter] 请求 SHEIN:', {
+      shopId: this.shopId,
+      baseUrl: this.baseUrl,
+      apiPath,
+      itemCount: requestBody.data.length,
+      totalPrint,
+      type,
+      printFormatType,
+      preview: requestBody.data.slice(0, 5)
+    });
+
+    const maxAttempts = 3;
+    let result;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        console.log('[barcode-print][adapter] SHEIN 请求尝试:', {
+          attempt,
+          maxAttempts,
+          shopId: this.shopId,
+          itemCount: requestBody.data.length
+        });
+
+        result = await this.request('POST', apiPath, requestBody, {
+          useXltLanguage: true
+        });
+        break;
+      } catch (error) {
+        const retryable = this._isRetryableBarcodePrintError(error);
+
+        console.warn('[barcode-print][adapter] SHEIN 请求失败:', {
+          attempt,
+          maxAttempts,
+          retryable,
+          message: error.message,
+          status: error.status,
+          code: error.code,
+          traceId: error.traceId,
+          data: error.data
+        });
+
+        if (!retryable || attempt === maxAttempts) {
+          throw error;
+        }
+
+        await this._sleep(attempt * 800);
+      }
+    }
+
+    console.log('[barcode-print][adapter] SHEIN 原始响应摘要:', {
+      code: result.code,
+      msg: result.msg,
+      traceId: result.traceId,
+      hasUrl: Boolean(result.info?.url),
+      errorCount: Array.isArray(result.info?.errorData) ? result.info.errorData.length : 0,
+      codingInfoCount: Array.isArray(result.info?.codingInfoList) ? result.info.codingInfoList.length : 0,
+      errorDataPreview: Array.isArray(result.info?.errorData) ? result.info.errorData.slice(0, 5) : []
     });
 
     return {

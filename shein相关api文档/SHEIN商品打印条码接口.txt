@@ -1,4 +1,4 @@
-更新时间：2025-07-31 16:54:20
+更新时间：2026-03-31 21:27:36
 商品打印条码
 POST
 /open-api/goods/print-barcode
@@ -25,7 +25,8 @@ string	是
 
 x-lt-language
 string	否	
-指定出参语种，默认中文；支持语种:英语:US 法语:FR 西班牙语:ES 德语:DE 中文简体:CN 泰语:TH 巴西葡语:PT 土耳其语：TR
+指定出参语种，默认中文。支持语种，英语：US，法语：FR，西班牙语：ES，德语：DE，中文简体：CN，泰语：TH，巴西葡语：PT，土耳其语：TR
+
 请求参数（请求体）
 收起
 数据类型	是否必须	描述
@@ -113,6 +114,7 @@ barcode条码；定制商品无需关注
 customCodingList
 object[]	否	
 定制商品二维码编码值
+
 traceId
 string	否	
 请求的唯一标识；用于异常报错跟踪
@@ -121,8 +123,6 @@ string	否
 收起
 请求示例
 复制
-
-
 curl --location --request POST 'https://openapi-test01.sheincorp.cn/open-api/goods/print-barcode' \
 --header 'language: zh-cn' \
 --header 'x-lt-openKeyId: test' \
@@ -171,6 +171,8 @@ curl --location --request POST 'https://openapi-test01.sheincorp.cn/open-api/goo
 业务返回错误信息
 收起
 语言
+错误信息
+错误码
 未解决你的问题，你可以通过 提交工单 获得帮助
 错误码	错误信息	解决方案
 openapi00006	

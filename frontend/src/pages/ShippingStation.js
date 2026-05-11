@@ -1205,14 +1205,26 @@ function ShippingStation() {
 
     setPrintLoading(true);
     try {
+      const invalidItems = barcodePrintData.filter(item => Number(item.quantity) > 0 && !item.sheinSku);
+      if (invalidItems.length > 0) {
+        message.warning(`${invalidItems.length} 个SKU缺少平台SKU，已跳过官方条码获取`);
+      }
+
       // 构建打印数据
-      const printData = barcodePrintData.map(item => ({
-        orderNo: item.orderNumber || null,
-        supplierSku: item.supplierSku || null,
-        sheinSku: item.sheinSku,
-        printNumber: item.quantity,
-        printContentType: barcodePrintContentType
-      }));
+      const printData = barcodePrintData
+        .filter(item => Number(item.quantity) > 0 && item.sheinSku)
+        .map(item => ({
+          orderNo: item.orderNumber || null,
+          sheinSku: item.sheinSku,
+          printNumber: item.quantity,
+          printContentType: barcodePrintContentType
+        }));
+
+      if (printData.length === 0) {
+        message.warning('请至少保留一个打印数量大于0且存在平台SKU的SKU');
+        setPrintLoading(false);
+        return;
+      }
 
       // 校验打印总数
       const totalPrintNumber = printData.reduce((sum, item) => sum + item.printNumber, 0);
@@ -1556,13 +1568,23 @@ function ShippingStation() {
           }
 
           // 获取官方生成的 barcode
-          const printData = groupItems.map(item => ({
-            orderNo: item.orderNumber || null,
-            supplierSku: item.supplierSku || null,
-            sheinSku: item.sheinSku,
-            printNumber: item.quantity,
-            printContentType: barcodePrintContentType
-          }));
+          const invalidItems = groupItems.filter(item => Number(item.quantity) > 0 && !item.sheinSku);
+          if (invalidItems.length > 0) {
+            message.warning(`店铺 ${shopId} 有 ${invalidItems.length} 个SKU缺少平台SKU，已跳过官方条码获取`);
+          }
+
+          const printData = groupItems
+            .filter(item => Number(item.quantity) > 0 && item.sheinSku)
+            .map(item => ({
+              orderNo: item.orderNumber || null,
+              sheinSku: item.sheinSku,
+              printNumber: item.quantity,
+              printContentType: barcodePrintContentType
+            }));
+
+          if (printData.length === 0) {
+            continue;
+          }
 
           const barcodeResponse = await stockOrdersAPI.printBarcode({
             shopId,

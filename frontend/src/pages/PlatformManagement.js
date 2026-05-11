@@ -279,6 +279,15 @@ function PlatformManagement() {
   };
 
   const handleToggleActive = async (shop) => {
+    const isDisabling = selectedPlatform === 'shein_full'
+      ? shop.status === 1
+      : shop.is_active;
+
+    if (selectedPlatform === 'shein_full' && isDisabling) {
+      const confirmed = window.confirm('停用后将删除该店铺已同步的订单、商品、库存、财务等数据，且会停止后续同步。确定继续吗？');
+      if (!confirmed) return;
+    }
+
     try {
       if (selectedPlatform === 'shein_full') {
         await sheinFullShopsAPI.update(shop.id, { status: shop.status === 1 ? 0 : 1 });
@@ -286,14 +295,21 @@ function PlatformManagement() {
         await platformConfigsAPI.updateShop(shop.id, { status: shop.is_active ? 0 : 1 });
       }
       loadShops();
-      message.success(shop.status === 1 || shop.is_active ? '已停用' : '已启用');
+      if (selectedPlatform === 'shein_full' && isDisabling) {
+        message.success('已停用，并清理该店铺关联数据');
+      } else {
+        message.success(shop.status === 1 || shop.is_active ? '已停用' : '已启用');
+      }
     } catch (error) {
-      message.error('更新失败: ' + error.message);
+      message.error('更新失败: ' + (error.response?.data?.message || error.message));
     }
   };
 
   const handleDeleteShop = async (id) => {
-    if (!window.confirm('确定要删除此店铺吗？')) return;
+    const confirmed = selectedPlatform === 'shein_full'
+      ? window.confirm('确定要删除此店铺吗？删除后将同时清理该店铺已同步的订单、商品、库存、财务等数据，且无法恢复。')
+      : window.confirm('确定要删除此店铺吗？');
+    if (!confirmed) return;
     
     try {
       if (selectedPlatform === 'shein_full') {
@@ -301,10 +317,10 @@ function PlatformManagement() {
       } else {
         await platformConfigsAPI.deleteShop(id);
       }
-      message.success('删除成功');
+      message.success(selectedPlatform === 'shein_full' ? '删除成功，已清理店铺关联数据' : '删除成功');
       loadShops();
     } catch (error) {
-      message.error('删除失败: ' + error.message);
+      message.error('删除失败: ' + (error.response?.data?.message || error.message));
     }
   };
 

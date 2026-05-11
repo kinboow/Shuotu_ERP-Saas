@@ -5,6 +5,9 @@
 const { sequelize } = require('../models');
 const { QueryTypes } = require('sequelize');
 const SheinFullAuthService = require('./shein-full-auth.service');
+const syncService = require('./shein-full-sync.service');
+const adapterManager = require('../adapters');
+const scheduler = require('../engine/scheduler');
 const {
   ensureTenantColumns,
   normalizeEnterpriseId,
@@ -176,6 +179,134 @@ class SheinFullShopService {
     });
     
     return shop || null;
+  }
+
+  static async purgeShopBusinessData(shopId, enterpriseId = undefined, transaction = undefined) {
+    await ensureTenantColumns();
+
+    const scopedEnterpriseId = this.resolveEnterpriseId(enterpriseId) ?? 0;
+    const queryOptions = transaction ? { transaction } : {};
+    const scopedReplacements = { shopId, enterpriseId: scopedEnterpriseId };
+    const shopReplacements = { shopId };
+
+    await sequelize.query(`
+      DELETE FROM shein_full_purchase_order_items
+      WHERE order_id IN (
+        SELECT id FROM (
+          SELECT id
+          FROM shein_full_purchase_orders
+          WHERE shop_id = :shopId AND enterprise_id = :enterpriseId
+        ) AS purchase_orders_to_delete
+      )
+    `, {
+      replacements: scopedReplacements,
+      ...queryOptions
+    });
+
+    await sequelize.query(`
+      DELETE FROM shein_full_purchase_orders
+      WHERE shop_id = :shopId AND enterprise_id = :enterpriseId
+    `, {
+      replacements: scopedReplacements,
+      ...queryOptions
+    });
+
+    await sequelize.query(`
+      DELETE FROM shein_full_delivery_order_items
+      WHERE delivery_id IN (
+        SELECT id FROM (
+          SELECT id
+          FROM shein_full_delivery_orders
+          WHERE shop_id = :shopId AND enterprise_id = :enterpriseId
+        ) AS delivery_orders_to_delete
+      )
+    `, {
+      replacements: scopedReplacements,
+      ...queryOptions
+    });
+
+    await sequelize.query(`
+      DELETE FROM shein_full_delivery_orders
+      WHERE shop_id = :shopId AND enterprise_id = :enterpriseId
+    `, {
+      replacements: scopedReplacements,
+      ...queryOptions
+    });
+
+    await sequelize.query(`
+      DELETE FROM shein_full_finance_report_sales_details
+      WHERE shop_id = :shopId
+    `, {
+      replacements: shopReplacements,
+      ...queryOptions
+    });
+
+    await sequelize.query(`
+      DELETE FROM shein_full_finance_report_adjustment_details
+      WHERE shop_id = :shopId
+    `, {
+      replacements: shopReplacements,
+      ...queryOptions
+    });
+
+    await sequelize.query(`
+      DELETE FROM shein_full_finance_reports
+      WHERE shop_id = :shopId
+    `, {
+      replacements: shopReplacements,
+      ...queryOptions
+    });
+
+    await sequelize.query(`
+      DELETE FROM shein_full_products
+      WHERE shop_id = :shopId
+    `, {
+      replacements: shopReplacements,
+      ...queryOptions
+    });
+
+    await sequelize.query(`
+      DELETE FROM shein_full_inventory
+      WHERE shop_id = :shopId
+    `, {
+      replacements: shopReplacements,
+      ...queryOptions
+    });
+
+    await sequelize.query(`
+      DELETE FROM sync_tasks
+      WHERE platform = 'shein_full' AND shop_id = :shopId
+    `, {
+      replacements: shopReplacements,
+      ...queryOptions
+    });
+
+    await sequelize.query(`
+      DELETE FROM shein_full_auth_logs
+      WHERE shop_id = :shopId
+    `, {
+      replacements: shopReplacements,
+      ...queryOptions
+    });
+  }
+
+  static removeShopRuntimeResources(shopId) {
+    const normalizedShopId = String(shopId);
+    adapterManager.remove(normalizedShopId);
+    scheduler.removeJob(normalizedShopId);
+  }
+
+  static async ensureShopHasNoRunningSyncTasks(shopId, enterpriseId = undefined, shop = null) {
+    const currentShop = shop || await this.getShopById(shopId, enterpriseId);
+    if (!currentShop || Number(currentShop.status) !== 1) {
+      return;
+    }
+
+    const runningTasks = await syncService.getRunningTasksForShop(shopId, enterpriseId);
+    if (runningTasks.length > 0) {
+      const taskNames = Array.from(new Set(runningTasks.map(task => task.dataTypeName || task.dataType || task.taskType))).join('、');
+      throw new Error(`店铺存在运行中的同步任务（${taskNames}），请等待同步完成后再停用或删除`);
+    }
   }
 
   /**
@@ -366,6 +497,11 @@ class SheinFullShopService {
     const scopedEnterpriseId = this.resolveEnterpriseId(enterpriseId);
     const shop = await this.getShopById(shopId, scopedEnterpriseId);
     if (!shop) throw new Error('店铺不存在');
+    const shouldPurgeData = data.status !== undefined && Number(data.status) === 0 && Number(shop.status) !== 0;
+
+    if (shouldPurgeData) {
+      await this.ensureShopHasNoRunningSyncTasks(shopId, scopedEnterpriseId, shop);
+    }
 
     const updates = [];
     const values = [];
@@ -399,9 +535,29 @@ class SheinFullShopService {
     values.push(shopId);
     values.push(scopedEnterpriseId ?? 0);
 
-    await sequelize.query(`
-      UPDATE shein_full_shops SET ${updates.join(', ')} WHERE id = ? AND enterprise_id = ?
-    `, { replacements: values });
+    const transaction = await sequelize.transaction();
+
+    try {
+      await sequelize.query(`
+        UPDATE shein_full_shops SET ${updates.join(', ')} WHERE id = ? AND enterprise_id = ?
+      `, {
+        replacements: values,
+        transaction
+      });
+
+      if (shouldPurgeData) {
+        await this.purgeShopBusinessData(shopId, scopedEnterpriseId, transaction);
+      }
+
+      await transaction.commit();
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+
+    if (shouldPurgeData) {
+      this.removeShopRuntimeResources(shopId);
+    }
 
     return this.getShopById(shopId, scopedEnterpriseId);
   }
@@ -414,11 +570,27 @@ class SheinFullShopService {
     const shop = await this.getShopById(shopId, scopedEnterpriseId);
     if (!shop) throw new Error('店铺不存在');
 
-    await sequelize.query(`DELETE FROM shein_full_shops WHERE id = ? AND enterprise_id = ?`, {
-      replacements: [shopId, scopedEnterpriseId ?? 0]
-    });
+    await this.ensureShopHasNoRunningSyncTasks(shopId, scopedEnterpriseId, shop);
 
-    return { success: true, message: '删除成功' };
+    const transaction = await sequelize.transaction();
+
+    try {
+      await this.purgeShopBusinessData(shopId, scopedEnterpriseId, transaction);
+
+      await sequelize.query(`DELETE FROM shein_full_shops WHERE id = ? AND enterprise_id = ?`, {
+        replacements: [shopId, scopedEnterpriseId ?? 0],
+        transaction
+      });
+
+      await transaction.commit();
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+
+    this.removeShopRuntimeResources(shopId);
+
+    return { success: true, message: '删除成功，并已清理店铺关联数据' };
   }
 
   /**

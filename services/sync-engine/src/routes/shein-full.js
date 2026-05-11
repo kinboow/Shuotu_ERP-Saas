@@ -1184,6 +1184,14 @@ router.post('/print-barcode', async (req, res) => {
   try {
     const { shopId, data, type = 2, printFormatType = 1 } = req.body;
 
+    console.log('[barcode-print][sync-engine] 收到请求:', {
+      shopId,
+      itemCount: Array.isArray(data) ? data.length : 0,
+      type,
+      printFormatType,
+      preview: Array.isArray(data) ? data.slice(0, 5) : []
+    });
+
     const shopContext = await requireEnterpriseShop(req, res, shopId, '缺少shopId参数');
     if (!shopContext) return;
 
@@ -1198,6 +1206,13 @@ router.post('/print-barcode', async (req, res) => {
     const adapter = await getAdapter(shopId, enterpriseId);
     const result = await adapter.printBarcode(data, type, printFormatType);
 
+    console.log('[barcode-print][sync-engine] SHEIN 返回结果:', {
+      hasUrl: Boolean(result.url),
+      errorCount: Array.isArray(result.errorData) ? result.errorData.length : 0,
+      codingInfoCount: Array.isArray(result.codingInfoList) ? result.codingInfoList.length : 0,
+      errorDataPreview: Array.isArray(result.errorData) ? result.errorData.slice(0, 5) : []
+    });
+
     res.json({
       success: true,
       url: result.url,
@@ -1205,7 +1220,13 @@ router.post('/print-barcode', async (req, res) => {
       codingInfoList: result.codingInfoList
     });
   } catch (error) {
-    console.error('[print-barcode] 错误:', error.message);
+    console.error('[barcode-print][sync-engine] 错误:', {
+      message: error.message,
+      status: error.status,
+      code: error.code,
+      traceId: error.traceId,
+      data: error.data
+    });
     res.status(500).json({ success: false, message: error.message });
   }
 });

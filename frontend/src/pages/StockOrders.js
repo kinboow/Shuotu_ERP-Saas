@@ -984,19 +984,23 @@ function StockOrders() {
 
     setPrintLoading(true);
     try {
+      const invalidItems = barcodePrintData.filter(item => Number(item.quantity) > 0 && !item.sheinSku);
+      if (invalidItems.length > 0) {
+        message.warning(`${invalidItems.length} 个SKU缺少平台SKU，已跳过官方条码获取`);
+      }
+
       // 构建打印数据
       const printData = barcodePrintData
-        .filter(item => Number(item.quantity) > 0)
+        .filter(item => Number(item.quantity) > 0 && item.sheinSku)
         .map(item => ({
           orderNo: item.orderNumber || null,
-          supplierSku: item.supplierSku || null,
           sheinSku: item.sheinSku,
           printNumber: Number(item.quantity) || 0,
           printContentType: barcodePrintContentType
         }));
 
       if (printData.length === 0) {
-        message.warning('请至少保留一个打印数量大于0的SKU');
+        message.warning('请至少保留一个打印数量大于0且存在平台SKU的SKU');
         setPrintLoading(false);
         return;
       }
@@ -1010,12 +1014,22 @@ function StockOrders() {
       }
 
       // 调用后端API
+      console.log('[barcode-print][frontend] 请求参数:', {
+        shopId,
+        itemCount: printData.length,
+        totalPrintNumber,
+        type: barcodePrintType,
+        printFormatType: barcodePrintFormatType,
+        preview: printData.slice(0, 5)
+      });
       const response = await stockOrdersAPI.printBarcode({
         shopId,
         data: printData,
         type: barcodePrintType,
         printFormatType: barcodePrintFormatType
       });
+
+      console.log('[barcode-print][frontend] 接口响应:', response.data);
 
       if (response.data.success) {
         if (response.data.url) {
@@ -1046,9 +1060,15 @@ function StockOrders() {
         setPrintModalVisible(false);
         // 保留选中状态：不调用 setSelectedOrders([])
       } else {
+        console.warn('[barcode-print][frontend] 接口返回失败:', response.data);
         message.error(response.data.message || '获取条码失败');
       }
     } catch (error) {
+      console.error('[barcode-print][frontend] 请求异常:', {
+        message: error.message,
+        responseStatus: error.response?.status,
+        responseData: error.response?.data
+      });
       message.destroy();
       message.error('打印条码失败: ' + (error.response?.data?.message || error.message));
     } finally {
@@ -1347,13 +1367,23 @@ function StockOrders() {
           }
 
           // 获取官方生成的 barcode
-          const printData = groupItems.map(item => ({
-            orderNo: item.orderNumber || null,
-            supplierSku: item.supplierSku || null,
-            sheinSku: item.sheinSku,
-            printNumber: Number(item.quantity) || 0,
-            printContentType: barcodePrintContentType
-          }));
+          const invalidItems = groupItems.filter(item => Number(item.quantity) > 0 && !item.sheinSku);
+          if (invalidItems.length > 0) {
+            message.warning(`店铺 ${shopId} 有 ${invalidItems.length} 个SKU缺少平台SKU，已跳过官方条码获取`);
+          }
+
+          const printData = groupItems
+            .filter(item => Number(item.quantity) > 0 && item.sheinSku)
+            .map(item => ({
+              orderNo: item.orderNumber || null,
+              sheinSku: item.sheinSku,
+              printNumber: item.quantity,
+              printContentType: barcodePrintContentType
+            }));
+
+          if (printData.length === 0) {
+            continue;
+          }
 
           const barcodeResponse = await stockOrdersAPI.printBarcode({
             shopId,

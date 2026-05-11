@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, Navigate, useNavigate, useLocation } from 'react-router-dom';
-import { Layout, Menu, Avatar, Dropdown, Button, Modal, Form, Select, Checkbox, message, Space, Input } from 'antd';
+import { Layout, Menu, Avatar, Dropdown, Button, Modal, Select, Checkbox, message, Space, Input } from 'antd';
 
 const { Option } = Select;
 import { ShoppingOutlined, AppstoreOutlined, LinkOutlined, DashboardOutlined, InboxOutlined, DollarOutlined, BankOutlined, ApiOutlined, TagsOutlined, LogoutOutlined, UserOutlined, CarOutlined, SyncOutlined } from '@ant-design/icons';
@@ -279,7 +279,6 @@ function HeaderOnlyLayout({ children }) {
   const [requiresEnterpriseSelection, setRequiresEnterpriseSelection] = useState(false);
   const [switchingEnterprise, setSwitchingEnterprise] = useState(false);
   const [syncModalVisible, setSyncModalVisible] = useState(false);
-  const [syncForm] = Form.useForm();
   const [syncing, setSyncing] = useState(false);
   const [syncProgress, setSyncProgress] = useState(0);
   const [syncTaskId, setSyncTaskId] = useState(null);
@@ -405,7 +404,6 @@ function HeaderOnlyLayout({ children }) {
   const handlePlatformChangeForHeader = (platformName) => {
     console.log('[同步弹窗] 选择平台:', platformName, '当前shops数量:', shops.length);
     setSelectedPlatform(platformName);
-    syncForm.setFieldsValue({ shopIds: [] });
     if (platformName) {
       // shein_full_shops表的店铺都是SHEIN全托管平台的
       if (platformName === 'shein_full') {
@@ -494,7 +492,7 @@ function HeaderOnlyLayout({ children }) {
 
   // 显示同步选项弹窗
   const handleShowSyncOptions = (shopId) => {
-    syncForm.setFieldsValue({ syncShopId: shopId, dataTypes: [] });
+    return shopId;
   };
 
   // 同步店铺指定数据类型
@@ -504,7 +502,6 @@ function HeaderOnlyLayout({ children }) {
     setCurrentSyncDataType(null);
     setSyncResults(null);
     setProductSyncInfo(null);
-    syncForm.setFieldsValue({ syncShopId: null });
     
     try {
       const payload = buildBatchSyncPayload({
@@ -553,26 +550,36 @@ function HeaderOnlyLayout({ children }) {
     navigate('/login');
   };
 
-  const userMenuForHeader = (
-    <Menu>
-      <Menu.Item key="user-info" disabled>
+  const userMenuForHeaderItems = [
+    {
+      key: 'user-info',
+      disabled: true,
+      label: (
         <div style={{ padding: '8px 0' }}>
           <div style={{ fontWeight: 'bold' }}>{user?.realName || user?.username || '用户'}</div>
           <div style={{ fontSize: '12px', color: '#999' }}>{user?.phone || ''}</div>
         </div>
-      </Menu.Item>
-      <Menu.Item key="enterprise-info" disabled>
+      )
+    },
+    {
+      key: 'enterprise-info',
+      disabled: true,
+      label: (
         <div style={{ padding: '4px 0' }}>
           <div style={{ fontSize: '12px', color: '#999' }}>当前企业</div>
           <div>{currentEnterprise?.companyName || '未加入企业'}</div>
         </div>
-      </Menu.Item>
-      <Menu.Divider />
-      <Menu.Item key="logout" icon={<LogoutOutlined />} onClick={handleLogoutForHeader}>
-        退出登录
-      </Menu.Item>
-    </Menu>
-  );
+      )
+    },
+    {
+      type: 'divider'
+    },
+    {
+      key: 'logout',
+      icon: <LogoutOutlined />,
+      label: '退出登录'
+    }
+  ];
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
@@ -639,7 +646,17 @@ function HeaderOnlyLayout({ children }) {
           >
             {syncing ? '正在同步...' : '同步数据'}
           </Button>
-          <Dropdown overlay={userMenuForHeader} placement="bottomRight">
+          <Dropdown
+            menu={{
+              items: userMenuForHeaderItems,
+              onClick: ({ key }) => {
+                if (key === 'logout') {
+                  handleLogoutForHeader();
+                }
+              }
+            }}
+            placement="bottomRight"
+          >
             <div style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Avatar 
                 src={user?.avatar} 
@@ -837,7 +854,6 @@ function MainLayout() {
   const [requiresEnterpriseSelection, setRequiresEnterpriseSelection] = useState(false);
   const [switchingEnterprise, setSwitchingEnterprise] = useState(false);
   const [syncModalVisible, setSyncModalVisible] = useState(false);
-  const [syncForm] = Form.useForm();
   const [syncing, setSyncing] = useState(false);
   const [syncProgress, setSyncProgress] = useState(0);
   const [syncTaskId, setSyncTaskId] = useState(null);
@@ -984,8 +1000,6 @@ function MainLayout() {
   // 处理平台变化
   const handlePlatformChange = (platformName) => {
     setSelectedPlatform(platformName);
-    // 清空已选择的店铺
-    syncForm.setFieldsValue({ shopIds: [] });
     
     // 根据平台过滤店铺
     if (platformName) {
@@ -1077,7 +1091,7 @@ function MainLayout() {
 
   // 显示同步选项弹窗
   const handleShowSyncOptions = (shopId) => {
-    syncForm.setFieldsValue({ syncShopId: shopId, dataTypes: [] });
+    return shopId;
   };
 
   // 同步店铺指定数据类型
@@ -1087,7 +1101,6 @@ function MainLayout() {
     setCurrentSyncDataType(null);
     setSyncResults(null);
     setProductSyncInfo(null);
-    syncForm.setFieldsValue({ syncShopId: null });
     
     try {
       const payload = buildBatchSyncPayload({
@@ -1136,29 +1149,51 @@ function MainLayout() {
     navigate('/login');
   };
 
-  const userMenu = (
-    <Menu>
-      <Menu.Item key="user-info" disabled>
+  const userMenuItems = [
+    {
+      key: 'user-info',
+      disabled: true,
+      label: (
         <div style={{ padding: '8px 0' }}>
           <div style={{ fontWeight: 'bold' }}>{user?.realName || user?.username || '用户'}</div>
           <div style={{ fontSize: '12px', color: '#999' }}>{user?.phone || ''}</div>
         </div>
-      </Menu.Item>
-      <Menu.Item key="enterprise-info" disabled>
+      )
+    },
+    {
+      key: 'enterprise-info',
+      disabled: true,
+      label: (
         <div style={{ padding: '4px 0' }}>
           <div style={{ fontSize: '12px', color: '#999' }}>当前企业</div>
           <div>{currentEnterprise?.companyName || '未加入企业'}</div>
         </div>
-      </Menu.Item>
-      <Menu.Divider />
-      <Menu.Item key="personal-center" icon={<UserOutlined />} onClick={() => navigate('/personal-center')}>
-        个人中心
-      </Menu.Item>
-      <Menu.Item key="logout" icon={<LogoutOutlined />} onClick={handleLogout}>
-        退出登录
-      </Menu.Item>
-    </Menu>
-  );
+      )
+    },
+    {
+      type: 'divider'
+    },
+    {
+      key: 'personal-center',
+      icon: <UserOutlined />,
+      label: '个人中心'
+    },
+    {
+      key: 'logout',
+      icon: <LogoutOutlined />,
+      label: '退出登录'
+    }
+  ];
+
+  const topMenuItems = [
+    { key: 'dashboard', label: <Link to="/" style={{ color: 'inherit' }}>首页</Link> },
+    { key: 'order-management', label: <Link to="/new-orders" style={{ color: 'inherit' }}>订单</Link> },
+    { key: 'shipping-management', label: <Link to="/product-inbound" style={{ color: 'inherit' }}>仓库</Link> },
+    { key: 'product-management', label: <Link to="/online-products" style={{ color: 'inherit' }}>商品</Link> },
+    { key: 'finance-management', label: <Link to="/finance-records" style={{ color: 'inherit' }}>财务</Link> },
+    { key: 'compliance-management', label: <Link to="/compliance-label-print" style={{ color: 'inherit' }}>更多+</Link> },
+    { key: 'system-management', label: <Link to="/platform-management" style={{ color: 'inherit' }}>设置</Link> }
+  ];
 
   // 根据当前路径获取选中的菜单项和展开的子菜单
   const getSelectedKey = () => {
@@ -1227,6 +1262,95 @@ function MainLayout() {
     return [];
   };
 
+  const sideMenuItems = [
+    ...(activeTopMenu === 'order-management' ? [
+      { key: 'stock-orders', label: <Link to="/new-orders">采购单列表</Link> },
+      { key: 'review-orders', label: <Link to="/review-orders">备货审核列表</Link> },
+      { key: 'shipping-station', label: <Link to="/shipping-station">发货台</Link> },
+      { key: 'delivery-orders', label: <Link to="/delivery-orders">发货单列表</Link> },
+      { key: 'urgent-orders', label: <Link to="/orders">自发货列表</Link> },
+      { key: 'after-sales', label: <Link to="/products">售后列表</Link> }
+    ] : []),
+    ...(activeTopMenu === 'product-management' ? [
+      {
+        key: 'online-products-group-toggle',
+        disabled: true,
+        label: (
+          <div
+            style={{
+              margin: '-12px -16px',
+              padding: '12px 16px',
+              background: '#f5f5f5',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              borderBottom: '1px solid #e8e8e8',
+              cursor: 'pointer'
+            }}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setExpandedMenuGroups(prev => ({ ...prev, onlineProducts: !prev.onlineProducts }));
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <ShoppingOutlined style={{ fontSize: '18px', color: '#333' }} />
+              <span style={{ fontSize: '14px', color: '#333', fontWeight: 500 }}>在线商品</span>
+            </div>
+            <span
+              style={{
+                color: '#999',
+                fontSize: '12px',
+                transition: 'transform 0.2s',
+                transform: expandedMenuGroups.onlineProducts ? 'rotate(0deg)' : 'rotate(180deg)'
+              }}
+            >
+              ∧
+            </span>
+          </div>
+        )
+      },
+      ...(expandedMenuGroups.onlineProducts ? [
+        { key: 'online-products-shein', label: <Link to="/online-products/shein">SHEIN</Link> },
+        { key: 'online-products-temu', label: <Link to="/online-products/temu">TEMU</Link> },
+        { key: 'online-products-tiktok', label: <Link to="/online-products/tiktok">TikTok</Link> }
+      ] : []),
+      { key: 'product-inventory', label: <Link to="/product-inventory">商品库存</Link> },
+      { key: 'publish-product', label: <Link to="/publish-product">刊登产品</Link> },
+      { key: 'publish-drafts', label: <Link to="/publish-drafts">刊登草稿箱</Link> },
+      { key: 'publish-records', label: <Link to="/publish-records">发布记录</Link> },
+      { key: 'erp-products', label: <Link to="/erp-products">ERP商品</Link> },
+      { key: 'product-mapping', label: <Link to="/product-mapping">映射管理</Link> }
+    ] : []),
+    ...(activeTopMenu === 'shipping-management' ? [
+      { key: 'product-inbound', label: <Link to="/product-inbound">产品入库</Link> },
+      { key: 'warehouse-inventory', label: <Link to="/warehouse-inventory">产品库存</Link> }
+    ] : []),
+    ...(activeTopMenu === 'finance-management' ? [
+      { key: 'basic-finance', label: <Link to="/finance-records">基础流水</Link> },
+      { key: 'sales-finance', label: <Link to="/withdrawals">销售流水</Link> }
+    ] : []),
+    ...(activeTopMenu === 'compliance-management' ? [
+      { key: 'compliance-label-print', label: <Link to="/compliance-label-print">合规标签打印</Link> },
+      { key: 'label-data-tables', label: <Link to="/label-data-tables">标签数据表</Link> },
+      { key: 'package-video-list', label: <Link to="/package-video-list">包装录像列表</Link> }
+    ] : []),
+    ...(activeTopMenu === 'system-management' ? [
+      { key: 'platform-management', label: <Link to="/platform-management">店铺授权</Link> },
+      { key: 'logistics-management', label: <Link to="/logistics-management">物流商对接</Link> },
+      { key: 'logistics-account-management', label: <Link to="/logistics-account-management">物流商账号</Link> },
+      { key: 'suppliers', label: <Link to="/suppliers">厂家管理</Link> },
+      { type: 'divider' },
+      { key: 'user-management', label: <Link to="/user-management">用户管理</Link> },
+      { key: 'role-management', label: <Link to="/role-management">角色权限</Link> },
+      { key: 'enterprise-settings', label: <Link to="/enterprise-settings">企业设置</Link> },
+      ...(canReviewJoinRequests ? [{ key: 'join-request-review', label: <Link to="/join-request-review">加入申请审核</Link> }] : []),
+      { type: 'divider' },
+      { key: 'operation-logs', label: <Link to="/operation-logs">操作日志</Link> },
+      { key: 'login-logs', label: <Link to="/login-logs">登录日志</Link> }
+    ] : [])
+  ];
+
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <Header style={{ 
@@ -1287,19 +1411,13 @@ function MainLayout() {
         <Menu 
           mode="horizontal" 
           selectedKeys={[activeTopMenu]} 
+          items={topMenuItems}
+          disabledOverflow
           className="top-nav-menu"
           style={{ flex: 1, background: 'transparent', borderBottom: 'none', marginLeft: 54, fontSize: 17 }}
           theme="dark"
           onClick={({ key }) => setActiveTopMenu(key)}
-        >
-          <Menu.Item key="dashboard"><Link to="/" style={{ color: 'inherit' }}>首页</Link></Menu.Item>
-          <Menu.Item key="order-management"><Link to="/new-orders" style={{ color: 'inherit' }}>订单</Link></Menu.Item>
-          <Menu.Item key="shipping-management"><Link to="/product-inbound" style={{ color: 'inherit' }}>仓库</Link></Menu.Item>
-          <Menu.Item key="product-management"><Link to="/online-products" style={{ color: 'inherit' }}>商品</Link></Menu.Item>
-          <Menu.Item key="finance-management"><Link to="/finance-records" style={{ color: 'inherit' }}>财务</Link></Menu.Item>
-          <Menu.Item key="compliance-management"><Link to="/compliance-label-print" style={{ color: 'inherit' }}>更多+</Link></Menu.Item>
-          <Menu.Item key="system-management"><Link to="/platform-management" style={{ color: 'inherit' }}>设置</Link></Menu.Item>
-        </Menu>
+        />
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           {enterprises.length > 0 ? (
             <Select
@@ -1343,7 +1461,20 @@ function MainLayout() {
           >
             {syncing ? '正在同步...' : '同步数据'}
           </Button>
-          <Dropdown overlay={userMenu} placement="bottomRight">
+          <Dropdown
+            menu={{
+              items: userMenuItems,
+              onClick: ({ key }) => {
+                if (key === 'personal-center') {
+                  navigate('/personal-center');
+                }
+                if (key === 'logout') {
+                  handleLogout();
+                }
+              }
+            }}
+            placement="bottomRight"
+          >
             <div style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Avatar 
                 src={user?.avatar} 
@@ -1370,104 +1501,9 @@ function MainLayout() {
             <Menu 
               mode="inline" 
               selectedKeys={getSelectedKey()} 
+              items={sideMenuItems}
               style={{ height: '100%', borderRight: 0 }}
-            >
-              {activeTopMenu === 'order-management' && (
-                <>
-                  <Menu.Item key="stock-orders"><Link to="/new-orders">采购单列表</Link></Menu.Item>
-                  <Menu.Item key="review-orders"><Link to="/review-orders">备货审核列表</Link></Menu.Item>
-                  <Menu.Item key="shipping-station"><Link to="/shipping-station">发货台</Link></Menu.Item>
-                  <Menu.Item key="delivery-orders"><Link to="/delivery-orders">发货单列表</Link></Menu.Item>
-                  <Menu.Item key="urgent-orders"><Link to="/orders">自发货列表</Link></Menu.Item>
-                  <Menu.Item key="after-sales"><Link to="/products">售后列表</Link></Menu.Item>
-                </>
-              )}
-              {activeTopMenu === 'product-management' && (
-                <div style={{ padding: '8px 0' }}>
-                  {/* 在线商品分组 */}
-                  <div 
-                    style={{ 
-                      padding: '12px 16px', 
-                      background: '#f5f5f5', 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      justifyContent: 'space-between',
-                      borderBottom: '1px solid #e8e8e8',
-                      cursor: 'pointer'
-                    }}
-                    onClick={() => setExpandedMenuGroups(prev => ({ ...prev, onlineProducts: !prev.onlineProducts }))}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <ShoppingOutlined style={{ fontSize: '18px', color: '#333' }} />
-                      <span style={{ fontSize: '14px', color: '#333', fontWeight: 500 }}>在线商品</span>
-                    </div>
-                    <span style={{ 
-                      color: '#999', 
-                      fontSize: '12px',
-                      transition: 'transform 0.2s',
-                      transform: expandedMenuGroups.onlineProducts ? 'rotate(0deg)' : 'rotate(180deg)'
-                    }}>∧</span>
-                  </div>
-                  {expandedMenuGroups.onlineProducts && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', padding: '8px 8px' }}>
-                      <Link to="/online-products/shein" style={{ 
-                        width: '50%', padding: '14px 8px', textAlign: 'center', fontSize: '16px',
-                        color: location.pathname === '/online-products/shein' ? '#1890ff' : '#333'
-                      }}>SHEIN</Link>
-                      <Link to="/online-products/temu" style={{ 
-                        width: '50%', padding: '14px 8px', textAlign: 'center', fontSize: '16px',
-                        color: location.pathname === '/online-products/temu' ? '#1890ff' : '#333'
-                      }}>TEMU</Link>
-                      <Link to="/online-products/tiktok" style={{ 
-                        width: '50%', padding: '14px 8px', textAlign: 'center', fontSize: '16px',
-                        color: location.pathname === '/online-products/tiktok' ? '#1890ff' : '#333'
-                      }}>TikTok</Link>
-                    </div>
-                  )}
-                  <Menu.Item key="product-inventory"><Link to="/product-inventory">商品库存</Link></Menu.Item>
-                  <Menu.Item key="publish-product"><Link to="/publish-product">刊登产品</Link></Menu.Item>
-                  <Menu.Item key="publish-drafts"><Link to="/publish-drafts">刊登草稿箱</Link></Menu.Item>
-                  <Menu.Item key="publish-records"><Link to="/publish-records">发布记录</Link></Menu.Item>
-                  <Menu.Item key="erp-products"><Link to="/erp-products">ERP商品</Link></Menu.Item>
-                  <Menu.Item key="product-mapping"><Link to="/product-mapping">映射管理</Link></Menu.Item>
-                </div>
-              )}
-              {activeTopMenu === 'shipping-management' && (
-                <>
-                  <Menu.Item key="product-inbound"><Link to="/product-inbound">产品入库</Link></Menu.Item>
-                  <Menu.Item key="warehouse-inventory"><Link to="/warehouse-inventory">产品库存</Link></Menu.Item>
-                </>
-              )}
-              {activeTopMenu === 'finance-management' && (
-                <>
-                  <Menu.Item key="basic-finance"><Link to="/finance-records">基础流水</Link></Menu.Item>
-                  <Menu.Item key="sales-finance"><Link to="/withdrawals">销售流水</Link></Menu.Item>
-                </>
-              )}
-              {activeTopMenu === 'compliance-management' && (
-                <>
-                  <Menu.Item key="compliance-label-print"><Link to="/compliance-label-print">合规标签打印</Link></Menu.Item>
-                  <Menu.Item key="label-data-tables"><Link to="/label-data-tables">标签数据表</Link></Menu.Item>
-                  <Menu.Item key="package-video-list"><Link to="/package-video-list">包装录像列表</Link></Menu.Item>
-                </>
-              )}
-              {activeTopMenu === 'system-management' && (
-                <>
-                  <Menu.Item key="platform-management"><Link to="/platform-management">店铺授权</Link></Menu.Item>
-                  <Menu.Item key="logistics-management"><Link to="/logistics-management">物流商对接</Link></Menu.Item>
-                  <Menu.Item key="logistics-account-management"><Link to="/logistics-account-management">物流商账号</Link></Menu.Item>
-                  <Menu.Item key="suppliers"><Link to="/suppliers">厂家管理</Link></Menu.Item>
-                  <Menu.Divider />
-                  <Menu.Item key="user-management"><Link to="/user-management">用户管理</Link></Menu.Item>
-                  <Menu.Item key="role-management"><Link to="/role-management">角色权限</Link></Menu.Item>
-                  <Menu.Item key="enterprise-settings"><Link to="/enterprise-settings">企业设置</Link></Menu.Item>
-                  {canReviewJoinRequests && <Menu.Item key="join-request-review"><Link to="/join-request-review">加入申请审核</Link></Menu.Item>}
-                  <Menu.Divider />
-                  <Menu.Item key="operation-logs"><Link to="/operation-logs">操作日志</Link></Menu.Item>
-                  <Menu.Item key="login-logs"><Link to="/login-logs">登录日志</Link></Menu.Item>
-                </>
-              )}
-            </Menu>
+            />
           </Sider>
         )}
         <Layout style={{ padding: '0', marginLeft: (activeTopMenu === 'dashboard' || location.pathname.match(/\/delivery-orders\/\d+/)) ? 0 : 170 }}>

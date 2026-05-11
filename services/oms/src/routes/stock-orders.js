@@ -302,6 +302,15 @@ router.post('/print-barcode', async (req, res) => {
     const enterpriseId = getRequiredEnterpriseIdFromRequest(req);
     const { shopId, data, type = 2, printFormatType = 1 } = req.body;
 
+    console.log('[barcode-print][oms] 收到请求:', {
+      enterpriseId,
+      shopId,
+      itemCount: Array.isArray(data) ? data.length : 0,
+      type,
+      printFormatType,
+      preview: Array.isArray(data) ? data.slice(0, 5) : []
+    });
+
     if (!shopId) {
       return res.status(400).json({ success: false, message: '缺少shopId参数' });
     }
@@ -312,6 +321,7 @@ router.post('/print-barcode', async (req, res) => {
     // 代理到 sync-engine 服务
     const axios = require('axios');
     const syncEngineUrl = process.env.SYNC_ENGINE_URL || `http://${process.env.SYNC_ENGINE_HOST || 'localhost'}:${process.env.SYNC_ENGINE_PORT || 5001}`;
+    console.log('[barcode-print][oms] 转发到 sync-engine:', `${syncEngineUrl}/api/shein-full/print-barcode`);
     const response = await axios.post(`${syncEngineUrl}/api/shein-full/print-barcode`, {
       shopId,
       data,
@@ -324,8 +334,15 @@ router.post('/print-barcode', async (req, res) => {
       }
     });
 
+    console.log('[barcode-print][oms] sync-engine 响应:', response.data);
+
     res.json(response.data);
   } catch (error) {
+    console.error('[barcode-print][oms] 代理异常:', {
+      message: error.message,
+      responseStatus: error.response?.status,
+      responseData: error.response?.data
+    });
     if (error.response) {
       res.status(error.response.status).json(error.response.data);
     } else {
